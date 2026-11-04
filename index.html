@@ -47,6 +47,9 @@
   .netpanel .row { display:flex; gap:12px; width:100%; max-width:440px; }
   .netpanel .row input { width:40%; text-transform:uppercase; }
   .netpanel .row button { width:60%; }
+  .netpanel .choice button { width:50%; text-align:center; }
+  .netpanel .choice button.active { background:#ffb020; color:#1a1a2e; }
+  .netpanel .choice button.active::before { content:"✔"; opacity:1; animation:none; }
   .netpanel .status { color:#ff5c7a; min-height:24px; }
   .netpanel .code { font-family:var(--pixel); font-size:44px; color:#ffb020; text-shadow:4px 4px 0 #b03000, 8px 8px 0 #000; letter-spacing:8px; margin:6px 0; }
   .netpanel .players { font-size:24px; line-height:1.6; }
@@ -79,8 +82,10 @@
 <div id="online" class="netpanel">
   <div class="panel">
     <h2>HRA PO WI-FI</h2>
-    <div class="help">KAŽDÝ HRÁČ NA SVÉM POČÍTAČI · WASD NEBO ŠIPKY · MEZERNÍK NEBO ENTER = BOMBA</div>
+    <div class="help">KAŽDÝ HRÁČ NA SVÉM POČÍTAČI · MEZERNÍK = BOMBA</div>
     <label class="help">TVOJE JMÉNO<br><input id="netName" maxlength="12" placeholder="např. Kuba"></label>
+    <div class="help">OVLÁDÁNÍ POHYBU</div>
+    <div class="row choice"><button id="ctlArrows" onclick="setControls('arrows')">ŠIPKY</button><button id="ctlWasd" onclick="setControls('wasd')">W A S D</button></div>
     <button onclick="netCreate()">ZALOŽIT NOVOU HRU</button>
     <div class="help">— NEBO SE PŘIPOJ KÓDEM —</div>
     <div class="row"><input id="netCode" maxlength="4" placeholder="KÓD"><button onclick="netJoin()">PŘIPOJIT</button></div>
@@ -737,10 +742,16 @@ const NET_URL = (() => {
 })();
 let net = { ws:null, id:null, code:null, host:null, phase:'lobby', score:{}, banner:null, lastSent:'', targets:{}, names:{} };
 const $ = id => document.getElementById(id);
+function setControls(c){
+  net.controls=c; try { localStorage.setItem('ab_controls', c); } catch(e){}
+  $('ctlArrows').classList.toggle('active', c==='arrows'); $('ctlWasd').classList.toggle('active', c==='wasd');
+}
 function openOnline(){
   document.getElementById('menu').style.display='none';
   $('online').style.display='flex'; $('netStatus').textContent='';
   try { $('netName').value = localStorage.getItem('ab_name') || ''; } catch(e){}
+  let c='arrows'; try { c = localStorage.getItem('ab_controls') || 'arrows'; } catch(e){}
+  setControls(c);
   if (!NET_URL) { $('netStatus').textContent = 'Hra po Wi-Fi funguje jen z adresy serveru (např. http://192.168.x.x:8787). Spusť server a otevři jeho adresu.'; }
   else if (location.hostname.endsWith('github.io')) { $('netStatus').textContent = 'Z této webové adresy to nejde – otevři adresu počítače, na kterém běží server (např. http://192.168.x.x:8787).'; }
   $('netName').focus();
@@ -817,9 +828,10 @@ function applySnapshot(s){
 }
 function netFrame(dt){
   // vstupy → server (jen při změně), bomba hned
-  const dx=((keys.KeyD||keys.ArrowRight)?1:0)-((keys.KeyA||keys.ArrowLeft)?1:0);
-  const dy=((keys.KeyS||keys.ArrowDown)?1:0)-((keys.KeyW||keys.ArrowUp)?1:0);
-  const bomb = !!(pressed.Space || pressed.Enter); pressed={};
+  const wasd = net.controls==='wasd';
+  const dx=((wasd?keys.KeyD:keys.ArrowRight)?1:0)-((wasd?keys.KeyA:keys.ArrowLeft)?1:0);
+  const dy=((wasd?keys.KeyS:keys.ArrowDown)?1:0)-((wasd?keys.KeyW:keys.ArrowUp)?1:0);
+  const bomb = !!pressed.Space; pressed={};
   const sig = dx+','+dy;
   if (bomb || sig!==net.lastSent) { netSend({t:'input', dx, dy, bomb}); net.lastSent=sig; }
   // dohlazení pozic k cíli ze serveru
@@ -828,7 +840,7 @@ function netFrame(dt){
 function drawNetHud(){
   const parts = players.map(p => `<span style="color:${p.color}">${esc(p.name||('Hráč '+(p.id+1)))}: ${net.score[p.id]||0} ★ 💣${p.maxBombs} 🔥${p.fire}${p.kick?' 🦶':''}${p.alive?'':' ☠'}</span>`);
   document.getElementById('hud1').innerHTML = parts.join('&nbsp;&nbsp;·&nbsp;&nbsp;');
-  document.getElementById('hud2').textContent = 'místnost '+net.code+' · ESC = odejít';
+  document.getElementById('hud2').textContent = 'místnost '+net.code+' · '+(net.controls==='wasd'?'WASD':'šipky')+' + mezerník · ESC = odejít';
   if (net.banner) {
     ctx.fillStyle='rgba(0,0,0,.6)'; ctx.fillRect(0,canvas.height/2-60,canvas.width,120);
     ctx.fillStyle='#ffb020'; ctx.font='bold 34px "VT323", monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';

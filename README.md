@@ -11,7 +11,7 @@ Rodinná hra na motivy Bombermana, běží v prohlížeči. Jeden soubor `index.
 | 1 hráč proti počítači | WASD + mezerník |
 | 2 hráči u jedné klávesnice | hráč 1: WASD + mezerník · hráč 2: šipky + Enter |
 | Kampaň (příšery, klíč, portál, 3 životy) | WASD + mezerník |
-| Po Wi-Fi, až 3 hráči, každý u svého počítače | WASD nebo šipky, mezerník nebo Enter |
+| Po Wi-Fi, až 3 hráči, každý u svého počítače | šipky nebo WASD (každý si vybere), mezerník = bomba |
 
 Esc kdykoli vrátí do menu.
 
