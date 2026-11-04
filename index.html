@@ -348,7 +348,11 @@ function placeBomb(p){
   const cx=cell(p.x), cy=cell(p.y);
   if (bombAt(cx,cy)) return;
   if (bombs.filter(b=>b.owner===p.id).length>=p.maxBombs) return;
-  bombs.push({cx,cy,owner:p.id,timer:BOMB_TIME,fire:p.fire,passable:[p.id],moving:null,mx:cx*T+T/2,my:cy*T+T/2});
+  // průchozí pro každého, kdo na políčku právě stojí (i soupeř, pod kterého bombu dáváš) – jinak by se zasekl
+  const R0=T*0.35+1;
+  const passable=players.filter(q=>q.alive && Math.abs(q.x-(cx*T+T/2))<T/2+R0 && Math.abs(q.y-(cy*T+T/2))<T/2+R0).map(q=>q.id);
+  if (!passable.includes(p.id)) passable.push(p.id);
+  bombs.push({cx,cy,owner:p.id,timer:BOMB_TIME,fire:p.fire,passable,moving:null,mx:cx*T+T/2,my:cy*T+T/2});
   beep(500,0.08,'sine',0.05);
 }
 function explode(b){

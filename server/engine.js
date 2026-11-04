@@ -90,7 +90,10 @@ function placeBomb(s, p) {
   const cx = cell(p.x), cy = cell(p.y);
   if (bombAt(s, cx, cy)) return;
   if (s.bombs.filter(b => b.owner === p.id).length >= p.maxBombs) return;
-  s.bombs.push({ cx, cy, owner: p.id, timer: BOMB_TIME, fire: p.fire, passable: [p.id], moving: null, mx: cx * T + T / 2, my: cy * T + T / 2 });
+  // průchozí pro každého, kdo na políčku právě stojí (i soupeř, pod kterého bombu dáváš) – jinak by se zasekl
+  const passable = s.players.filter(q => q.alive && Math.abs(q.x - (cx * T + T / 2)) < T / 2 + R && Math.abs(q.y - (cy * T + T / 2)) < T / 2 + R).map(q => q.id);
+  if (!passable.includes(p.id)) passable.push(p.id);
+  s.bombs.push({ cx, cy, owner: p.id, timer: BOMB_TIME, fire: p.fire, passable, moving: null, mx: cx * T + T / 2, my: cy * T + T / 2 });
   s.events.push('bomb');
 }
 function dropPowerup(s, x, y) {
