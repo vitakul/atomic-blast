@@ -54,6 +54,16 @@
   .netpanel .code { font-family:var(--pixel); font-size:44px; color:#ffb020; text-shadow:4px 4px 0 #b03000, 8px 8px 0 #000; letter-spacing:8px; margin:6px 0; }
   .netpanel .players { font-size:24px; line-height:1.6; }
   .netpanel .players span { display:inline-block; width:14px; height:14px; border:2px solid #fff; margin-right:8px; vertical-align:middle; }
+  .settings { width:100%; max-width:440px; display:flex; flex-direction:column; gap:8px; }
+  .settings .srow { display:flex; align-items:center; gap:8px; }
+  .settings .slabel { font-family:var(--retro); font-size:20px; color:#9fa8c7; width:120px; letter-spacing:1px; flex:none; }
+  .settings .sopts { display:flex; gap:6px; flex:1; }
+  .settings .sopts button { font-size:18px; padding:6px 4px; width:auto; flex:1; text-align:center; border-width:3px; box-shadow:3px 3px 0 #000; }
+  .settings .sopts button::before { display:none; }
+  .settings .sopts button:hover { padding-left:4px; }
+  .settings .sopts button.active { background:#ffb020; color:#1a1a2e; }
+  .settings .sopts button:disabled { cursor:default; opacity:.55; }
+  .settings .sopts button:disabled.active { opacity:1; }
 </style>
 </head>
 <body>
@@ -99,6 +109,7 @@
     <div class="help">KÓD MÍSTNOSTI – ŘEKNI HO OSTATNÍM</div>
     <div id="lobbyCode" class="code"></div>
     <div id="lobbyPlayers" class="help players"></div>
+    <div id="lobbySettings" class="settings"></div>
     <div id="lobbyHint" class="help"></div>
     <button id="lobbyStart" onclick="netStart()">START (2–3 HRÁČI)</button>
     <button onclick="netLeave()">ODEJÍT</button>
@@ -787,6 +798,7 @@ function netMessage(m){
       $('lobbyCode').textContent=m.code;
       $('lobbyPlayers').innerHTML = m.players.map(p => `<div><span style="background:${p.color}"></span>${esc(p.name)}${p.id===m.host?' (zakladatel)':''}${p.id===net.id?' – to jsi ty':''}</div>`).join('');
       const isHost = m.host===net.id;
+      renderSettings(m.settings || {}, isHost);
       $('lobbyStart').style.display = isHost ? '' : 'none';
       $('lobbyHint').textContent = isHost ? (m.players.length<2 ? 'Čekáme na dalšího hráče…' : 'Můžeš spustit hru.') : 'Čekáme, až zakladatel spustí hru…';
       if (mode===4) { mode=0; $('lobby').style.display='flex'; }
@@ -809,6 +821,17 @@ function netMessage(m){
   }
 }
 function esc(s){ return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+const SETTING_ROWS = [
+  { key:'powerups',    label:'POWER-UPY', opts:[['low','MÁLO'],['normal','NORMÁLNĚ'],['high','HODNĚ']] },
+  { key:'roundTime',   label:'DÉLKA KOLA', opts:[[60,'1 MIN'],[120,'2 MIN'],[180,'3 MIN']] },
+  { key:'roundsToWin', label:'VÍTĚZNÝCH KOL', opts:[[1,'1'],[3,'3'],[5,'5']] },
+  { key:'suddenDeath', label:'SUDDEN DEATH', opts:[[true,'ZAPNUTO'],[false,'VYPNUTO']] },
+];
+function renderSettings(s, isHost){
+  $('lobbySettings').innerHTML = SETTING_ROWS.map(r => `<div class="srow"><div class="slabel">${r.label}</div><div class="sopts">` +
+    r.opts.map(([v,l]) => `<button ${String(s[r.key])===String(v)?'class="active"':''} ${isHost?'':'disabled'} onclick="netSetting('${r.key}',${JSON.stringify(v)})">${l}</button>`).join('') + '</div></div>').join('');
+}
+function netSetting(key, value){ netSend({t:'settings', settings:{[key]:value}}); }
 function applySnapshot(s){
   for (let y=0;y<ROWS;y++) for (let x=0;x<COLS;x++) grid[y][x] = +s.g[y*COLS+x];
   bombs = s.b.map(([cx,cy,mx,my,timer]) => ({cx,cy,mx,my,timer,passable:[],moving:null,owner:-1,fire:0}));

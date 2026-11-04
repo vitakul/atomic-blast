@@ -18,12 +18,13 @@ function makeCode() {
 function send(ws, msg) { if (ws.readyState === 1) ws.send(JSON.stringify(msg)); }
 function broadcast(room, msg) { const s = JSON.stringify(msg); for (const m of room.members.values()) if (m.ws.readyState === 1) m.ws.send(s); }
 function lobbyInfo(room) {
-  return { t: 'lobby', code: room.code, host: room.hostId, phase: room.phase, score: room.score,
+  return { t: 'lobby', code: room.code, host: room.hostId, phase: room.phase, score: room.score, settings: room.settings,
     players: [...room.members.values()].map(m => ({ id: m.id, name: m.name, color: engine.COLORS[m.id] })) };
 }
 
 function createRoom() {
-  const room = { code: makeCode(), members: new Map(), hostId: null, phase: 'lobby', state: null, score: {}, timer: null, pending: null, lastTick: 0 };
+  const room = { code: makeCode(), members: new Map(), hostId: null, phase: 'lobby', state: null, score: {}, timer: null, pending: null, lastTick: 0,
+    settings: { ...engine.DEFAULT_SETTINGS } };
   rooms.set(room.code, room);
   return room;
 }
@@ -56,7 +57,7 @@ function startMatch(room) {
 function startRound(room) {
   room.phase = 'playing';
   const infos = [...room.members.values()].map(m => ({ id: m.id, name: m.name }));
-  room.state = engine.createRound(infos);
+  room.state = engine.createRound(infos, room.settings);
   for (const m of room.members.values()) { m.input = { dx: 0, dy: 0 }; m.bomb = false; }
   broadcast(room, { t: 'round_start', score: room.score, players: infos.map(i => ({ ...i, color: engine.COLORS[i.id] })) });
   room.lastTick = Date.now();
@@ -73,7 +74,7 @@ function tick(room) {
     stopRoom(room);
     room.phase = 'between';
     if (result.winner) room.score[result.winner.id] = (room.score[result.winner.id] || 0) + 1;
-    const winnerId = Object.keys(room.score).find(id => room.score[id] >= ROUNDS_TO_WIN);
+    const winnerId = Object.keys(room.score).find(id => room.score[id] >= (room.settings.roundsToWin || ROUNDS_TO_WIN));
     const matchOver = winnerId !== undefined;
     broadcast(room, { t: 'round_end', winner: result.winner ? { id: result.winner.id, name: result.winner.name } : null, score: room.score, matchOver,
       champion: matchOver ? { id: +winnerId, name: ([...room.members.values()].find(m => m.id === +winnerId) || {}).name } : null });
@@ -121,6 +122,11 @@ wss.on('connection', ws => {
         if (room.members.size < 2) return send(ws, { t: 'error', msg: 'Potřebujete aspoň 2 hráče.' });
         if (room.phase !== 'lobby') return;
         startMatch(room); break; }
+      case 'settings': { if (!c) return; const room = c.room;
+        if (room.hostId !== c.id) return send(ws, { t: 'error', msg: 'Nastavení může měnit jen zakladatel.' });
+        if (room.phase !== 'lobby') return;
+        room.settings = engine.normalizeSettings({ ...room.settings, ...(msg.settings || {}) });
+        broadcast(room, lobbyInfo(room)); break; }
       case 'input': { if (!c) return; const m = c.room.members.get(ws); if (!m) return;
         m.input = { dx: Math.sign(+msg.dx || 0), dy: Math.sign(+msg.dy || 0) }; if (msg.bomb) m.bomb = true; break; }
       case 'leave': { leaveRoom(ws); break; }

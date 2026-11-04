@@ -21,15 +21,33 @@ function makeGrid() {
   return g;
 }
 
-function createRound(playerInfos) {
+// Nastavení místnosti (vybírá zakladatel v lobby)
+const DEFAULT_SETTINGS = { powerups: 'normal', roundTime: 120, roundsToWin: 3, suddenDeath: true };
+const POWERUP_PRESETS = {
+  low:    { dropRate: 0.35, startBombs: 1, startFire: 2 },
+  normal: { dropRate: 0.65, startBombs: 1, startFire: 2 },
+  high:   { dropRate: 0.90, startBombs: 2, startFire: 3 },
+};
+function normalizeSettings(s) {
+  const o = { ...DEFAULT_SETTINGS, ...(s || {}) };
+  if (!POWERUP_PRESETS[o.powerups]) o.powerups = 'normal';
+  if (![60, 120, 180].includes(+o.roundTime)) o.roundTime = 120; else o.roundTime = +o.roundTime;
+  if (![1, 3, 5].includes(+o.roundsToWin)) o.roundsToWin = 3; else o.roundsToWin = +o.roundsToWin;
+  o.suddenDeath = !!o.suddenDeath;
+  return o;
+}
+
+function createRound(playerInfos, settings) {
   // playerInfos: [{id, name}] – id = slot 0..3
+  const opts = normalizeSettings(settings);
+  const preset = POWERUP_PRESETS[opts.powerups];
   const players = playerInfos.map((info, i) => {
     const [sx, sy] = STARTS[info.id];
     return { id: info.id, name: info.name, x: sx * T + T / 2, y: sy * T + T / 2, color: COLORS[info.id],
-      alive: true, maxBombs: 1, fire: 2, speed: 2.6, kick: false, dir: { x: 0, y: 1 }, anim: 0 };
+      alive: true, maxBombs: preset.startBombs, fire: preset.startFire, speed: 2.6, kick: false, dir: { x: 0, y: 1 }, anim: 0 };
   });
-  return { grid: makeGrid(), bombs: [], fires: [], powerups: [], players, roundTimer: ROUND_TIME,
-    suddenDeath: null, roundOver: false, events: [] };
+  return { grid: makeGrid(), bombs: [], fires: [], powerups: [], players, roundTimer: opts.roundTime,
+    suddenDeath: null, roundOver: false, events: [], opts, dropRate: preset.dropRate };
 }
 
 const cell = v => Math.floor(v / T);
@@ -76,9 +94,9 @@ function placeBomb(s, p) {
   s.events.push('bomb');
 }
 function dropPowerup(s, x, y) {
+  if (Math.random() >= (s.dropRate == null ? 0.65 : s.dropRate)) return;
   const r = Math.random();
-  if (r < 0.35) return;
-  const kind = r < 0.60 ? 'bomb' : r < 0.82 ? 'fire' : r < 0.94 ? 'speed' : 'kick';
+  const kind = r < 0.40 ? 'bomb' : r < 0.72 ? 'fire' : r < 0.90 ? 'speed' : 'kick';
   s.powerups.push({ cx: x, cy: y, kind, shield: FIRE_TIME + 0.05 });   // odolný vůči plameni, který ho odkryl
 }
 function explode(s, b) {
@@ -114,7 +132,7 @@ function step(s, inputs, dt) {
   if (s.roundOver) return null;
   s.events = [];
   s.roundTimer -= dt;
-  if (s.roundTimer <= SUDDEN_DEATH_AT) {
+  if (s.roundTimer <= SUDDEN_DEATH_AT && (!s.opts || s.opts.suddenDeath)) {
     if (!s.suddenDeath) s.suddenDeath = { cells: spiralCells(s), i: 0, t: 0 };
     s.suddenDeath.t -= dt;
     if (s.suddenDeath.t <= 0 && s.suddenDeath.i < s.suddenDeath.cells.length) {
@@ -182,4 +200,4 @@ function snapshot(s) {
   };
 }
 
-module.exports = { COLS, ROWS, T, createRound, step, snapshot, COLORS, STARTS };
+module.exports = { COLS, ROWS, T, createRound, step, snapshot, COLORS, STARTS, DEFAULT_SETTINGS, normalizeSettings };

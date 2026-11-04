@@ -24,7 +24,8 @@ Jeden počítač dělá server, ostatní se připojí prohlížečem.
 3. V terminálu se vypíše adresa, např. `http://192.168.0.94:8787`. Tu otevřou všichni hráči
    ve stejné Wi-Fi (i ten na serverovém počítači může použít `http://localhost:8787`).
 4. V menu zvolte **Po Wi-Fi**, jeden založí hru a řekne ostatním čtyřpísmenný kód.
-5. Zakladatel dá START, hraje se na 3 vyhraná kola.
+5. Zakladatel v lobby nastaví pravidla (množství power-upů, délka kola, počet vítězných kol,
+   sudden death) a dá START. Ostatní nastavení vidí, měnit ho může jen zakladatel.
 
 macOS se při prvním spuštění může zeptat, zda smí Node přijímat příchozí spojení – povolte.
 
