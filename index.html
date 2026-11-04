@@ -584,13 +584,38 @@ function draw(){
 }
 
 function drawPlayerSprite(c,x,y,color,dir,anim){
-  const bob=Math.sin(anim)*3;
-  c.fillStyle='rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(x,y+T*0.38,T*0.3,T*0.12,0,0,Math.PI*2); c.fill();
-  c.fillStyle=color; c.fillRect(x-12,y-6+bob,24,24); // tělo
-  c.fillStyle='#fff'; c.beginPath(); c.arc(x,y-14+bob,13,0,Math.PI*2); c.fill(); // hlava
-  c.fillStyle=color; c.beginPath(); c.arc(x,y-16+bob,13,Math.PI,0); c.fill(); // helma
-  c.fillStyle='#222'; c.fillRect(x-6+dir.x*3,y-12+bob,4,4); c.fillRect(x+2+dir.x*3,y-12+bob,4,4); // oči
-  c.fillStyle='#222'; c.fillRect(x-11,y+18+bob,8,5); c.fillRect(x+3,y+18-bob,8,5); // nohy
+  const bob=Math.sin(anim)*2, step=Math.sin(anim)*4;
+  const dx=dir.x, back=dir.y<0 && dir.x===0;   // otočený zády
+  c.lineWidth=2; c.strokeStyle='#1a1a2e'; c.lineJoin='round';
+  // stín
+  c.fillStyle='rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(x,y+T*0.4,T*0.3,T*0.11,0,0,Math.PI*2); c.fill();
+  // nohy (bílé boty)
+  c.fillStyle='#fff'; c.beginPath(); c.roundRect(x-11,y+12+step,10,8,3); c.roundRect(x+1,y+12-step,10,8,3); c.fill(); c.stroke();
+  // tělo – skafandr
+  c.fillStyle=color; c.beginPath(); c.roundRect(x-11,y-4+bob,22,20,6); c.fill(); c.stroke();
+  // pásek s přezkou
+  c.fillStyle='#1a1a2e'; c.fillRect(x-11,y+7+bob,22,4); c.fillStyle='#ffd34d'; c.fillRect(x-3,y+6+bob,6,6);
+  // ruce s bílými rukavicemi
+  c.fillStyle='#fff'; c.beginPath(); c.arc(x-14,y+4+bob-step/2,5,0,Math.PI*2); c.arc(x+14,y+4+bob+step/2,5,0,Math.PI*2); c.fill(); c.stroke();
+  // helma – velká bílá koule
+  c.fillStyle='#fff'; c.beginPath(); c.arc(x,y-14+bob,15,0,Math.PI*2); c.fill(); c.stroke();
+  // anténka s kuličkou
+  c.beginPath(); c.moveTo(x,y-29+bob); c.lineTo(x+2,y-36+bob); c.stroke();
+  c.fillStyle=color; c.beginPath(); c.arc(x+2,y-37+bob,3.5,0,Math.PI*2); c.fill(); c.stroke();
+  if (!back) {
+    // hledí v barvě hráče přes oči
+    c.fillStyle=color; c.beginPath(); c.roundRect(x-11+dx*2,y-19+bob,22,10,4); c.fill(); c.stroke();
+    // oči – bílé oválky s černými zorničkami
+    c.fillStyle='#fff'; c.beginPath(); c.ellipse(x-5+dx*2,y-14+bob,3,4,0,0,Math.PI*2); c.ellipse(x+5+dx*2,y-14+bob,3,4,0,0,Math.PI*2); c.fill();
+    c.fillStyle='#1a1a2e'; c.beginPath(); c.arc(x-5+dx*3,y-13+bob,1.8,0,Math.PI*2); c.arc(x+5+dx*3,y-13+bob,1.8,0,Math.PI*2); c.fill();
+    // tvářičky
+    c.fillStyle='rgba(255,120,140,.6)'; c.beginPath(); c.arc(x-9+dx*2,y-9+bob,2,0,Math.PI*2); c.arc(x+9+dx*2,y-9+bob,2,0,Math.PI*2); c.fill();
+  } else {
+    // zezadu: jen pruh hledí kolem helmy
+    c.fillStyle=color; c.fillRect(x-14,y-18+bob,28,4);
+  }
+  // odlesk helmy
+  c.fillStyle='rgba(255,255,255,.8)'; c.beginPath(); c.arc(x-7,y-22+bob,3,0,Math.PI*2); c.fill();
 }
 function drawMonsterSprite(c,m){
   const t=MONSTER_TYPES[m.type], bob=Math.sin(m.anim)*3;
