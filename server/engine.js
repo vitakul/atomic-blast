@@ -115,6 +115,11 @@ function explode(s, b) {
   }
 }
 function killPlayer(s, p) { if (p.alive) { p.alive = false; s.events.push('death'); } }
+// Plamen zasáhne, jen když je střed hráče aspoň FIRE_MARGIN px uvnitř políčka (únik „o fous“ projde)
+const FIRE_MARGIN = 8;
+function fireHits(f, p) {
+  return Math.abs(p.x - (f.cx * T + T / 2)) < T / 2 - FIRE_MARGIN && Math.abs(p.y - (f.cy * T + T / 2)) < T / 2 - FIRE_MARGIN;
+}
 function spiralCells(s) {
   const out = []; let x0 = 1, y0 = 1, x1 = COLS - 2, y1 = ROWS - 2;
   while (x0 <= x1 && y0 <= y1) {
@@ -167,7 +172,7 @@ function step(s, inputs, dt) {
   for (const u of s.powerups) u.shield = (u.shield || 0) - dt;
   for (const f of s.fires) {
     s.powerups = s.powerups.filter(u => u.shield > 0 || !(u.cx === f.cx && u.cy === f.cy));
-    for (const p of s.players) if (p.alive && cell(p.x) === f.cx && cell(p.y) === f.cy) killPlayer(s, p);
+    for (const p of s.players) if (p.alive && fireHits(f, p)) killPlayer(s, p);
   }
   for (const p of s.players) if (p.alive) {
     const i = s.powerups.findIndex(u => u.cx === cell(p.x) && u.cy === cell(p.y));

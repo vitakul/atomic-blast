@@ -506,7 +506,7 @@ function update(dt){
   for (const u of powerups) u.shield=(u.shield||0)-dt;
   for (const f of fires) {
     powerups=powerups.filter(u=>u.shield>0 || !(u.cx===f.cx&&u.cy===f.cy));
-    for (const p of players) if (p.alive && cell(p.x)===f.cx && cell(p.y)===f.cy) killPlayer(p);
+    for (const p of players) if (p.alive && fireHits(f,p)) killPlayer(p);
   }
   if (campaign) {
     monsterHitByFire();
@@ -539,6 +539,9 @@ function update(dt){
 let pendingTimer=null;
 function clearPending(){ if (pendingTimer){ clearTimeout(pendingTimer); pendingTimer=null; } }
 function killPlayer(p){ p.alive=false; beep(200,0.4,'sawtooth',0.1); }
+// Plamen zasáhne, jen když je střed hráče aspoň 8 px uvnitř políčka (únik „o fous“ projde)
+const FIRE_MARGIN=8;
+function fireHits(f,p){ return Math.abs(p.x-(f.cx*T+T/2))<T/2-FIRE_MARGIN && Math.abs(p.y-(f.cy*T+T/2))<T/2-FIRE_MARGIN; }
 function spiralCells(){
   const out=[]; let x0=1,y0=1,x1=COLS-2,y1=ROWS-2;
   while(x0<=x1&&y0<=y1){
@@ -779,6 +782,9 @@ function netConnect(onOpen){
   ws.onerror = () => { $('netStatus').textContent='Nepodařilo se připojit k serveru.'; };
   ws.onclose = () => { if (mode===4 || $('lobby').style.display==='flex') { netLeaveUI('Spojení se serverem se přerušilo.'); } net.ws=null; };
   ws.onmessage = ev => netMessage(JSON.parse(ev.data));
+  // měření odezvy každé 2 s
+  if (net.pingTimer) clearInterval(net.pingTimer);
+  net.pingTimer = setInterval(() => { if (ws.readyState===1) ws.send(JSON.stringify({t:'ping', ts:performance.now()})); else clearInterval(net.pingTimer); }, 2000);
 }
 function netSend(m){ if (net.ws && net.ws.readyState===1) net.ws.send(JSON.stringify(m)); }
 function netName(){ const n=$('netName').value.trim() || 'Hráč'; try { localStorage.setItem('ab_name', n); } catch(e){} return n; }
@@ -820,7 +826,8 @@ function netMessage(m){
       keys={}; pressed={}; net.lastSent='';
       mode=4; lastTime=performance.now(); if (!loopRunning) { loopRunning=true; requestAnimationFrame(loop); }
       break; }
-    case 'state': applySnapshot(m.s); break;
+    case 'state': applySnapshot(m.s); net.rtt = m.rtt || {}; break;
+    case 'pong': { const ms = Math.round(performance.now() - m.ts); net.myRtt = ms; netSend({t:'rtt', ms}); break; }
     case 'round_end': {
       net.score=m.score||{};
       const txt = m.matchOver ? '🏆 '+(m.champion&&m.champion.name)+' vyhrál zápas!' : (m.winner ? m.winner.name+' vyhrál kolo!' : 'Remíza!');
@@ -872,9 +879,10 @@ function netFrame(dt){
   for (const p of players) { const t=net.targets[p.id]; if (!t) continue; const k=Math.min(1, dt*18); p.x+=(t.x-p.x)*k; p.y+=(t.y-p.y)*k; }
 }
 function drawNetHud(){
-  const parts = players.map(p => `<span style="color:${p.color}">${esc(p.name||('Hráč '+(p.id+1)))}: ${net.score[p.id]||0} ★ 💣${p.maxBombs} 🔥${p.fire}${p.kick?' 🦶':''}${p.alive?'':' ☠'}</span>`);
+  const rttTxt = p => { const r = net.rtt && net.rtt[p.id]; return r==null ? '' : ` <small style="color:${r<80?'#7cff5c':r<150?'#ffd34d':'#ff5c7a'}">📶${r}ms</small>`; };
+  const parts = players.map(p => `<span style="color:${p.color}">${esc(p.name||('Hráč '+(p.id+1)))}: ${net.score[p.id]||0} ★ 💣${p.maxBombs} 🔥${p.fire}${p.kick?' 🦶':''}${p.alive?'':' ☠'}${rttTxt(p)}</span>`);
   document.getElementById('hud1').innerHTML = parts.join('&nbsp;&nbsp;·&nbsp;&nbsp;');
-  document.getElementById('hud2').textContent = 'místnost '+net.code+' · '+(net.controls==='wasd'?'WASD':'šipky')+' + mezerník · ESC = odejít';
+  document.getElementById('hud2').textContent = net.code+' · '+(net.controls==='wasd'?'WASD':'šipky')+' · ESC = odejít';
   if (net.toast && performance.now()<net.toast.until) {
     ctx.fillStyle='rgba(0,0,0,.6)'; ctx.fillRect(canvas.width/2-180,canvas.height-44,360,32);
     ctx.fillStyle='#fff'; ctx.font='22px "VT323", monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';

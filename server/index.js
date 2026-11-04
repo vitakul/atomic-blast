@@ -69,7 +69,8 @@ function tick(room) {
   const inputs = {};
   for (const m of room.members.values()) { inputs[m.id] = { dx: m.input.dx, dy: m.input.dy, bomb: m.bomb }; m.bomb = false; }
   const result = engine.step(room.state, inputs, dt);
-  broadcast(room, { t: 'state', s: engine.snapshot(room.state) });
+  const rtt = {}; for (const m of room.members.values()) if (m.rtt != null) rtt[m.id] = m.rtt;
+  broadcast(room, { t: 'state', s: engine.snapshot(room.state), rtt });
   if (result) {
     stopRoom(room);
     room.phase = 'between';
@@ -138,6 +139,7 @@ wss.on('connection', ws => {
         m.input = { dx: Math.sign(+msg.dx || 0), dy: Math.sign(+msg.dy || 0) }; if (msg.bomb) m.bomb = true; break; }
       case 'leave': { leaveRoom(ws); break; }
       case 'ping': { send(ws, { t: 'pong', ts: msg.ts }); break; }
+      case 'rtt': { if (!c) return; const m = c.room.members.get(ws); if (m) m.rtt = Math.max(0, Math.min(9999, Math.round(+msg.ms || 0))); break; }
     }
   });
   ws.on('close', () => leaveRoom(ws));
