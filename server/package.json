@@ -1,0 +1,14 @@
+{
+  "name": "atomic-blast-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WebSocket game server for Atomic Blast online arena",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
