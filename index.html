@@ -68,6 +68,8 @@
     <h2 id="ovTitle"></h2>
     <div id="ovText" class="help"></div>
     <button id="ovBtn" onclick="overlayAction()">POKRAČOVAT</button>
+    <button id="ovMenuBtn" onclick="backToMenu()">ZPĚT DO MENU</button>
+    <div class="help">ESC = ZPĚT DO MENU KDYKOLI BĚHEM HRY</div>
   </div>
 </div>
 
@@ -487,6 +489,11 @@ function showOverlay(title,text,btn,next){
   document.getElementById('ovText').textContent=text;
   document.getElementById('ovBtn').textContent=btn;
   ov.dataset.next=next; ov.style.display='flex';
+  document.getElementById('ovMenuBtn').style.display = next==='menu' ? 'none' : '';
+}
+function backToMenu(){
+  document.getElementById('overlay').style.display='none';
+  mode=0; campaign=null; roundOver=true; showMenu();
 }
 function endRound(winner){
   if (winner) score[winner.id]++;
@@ -632,6 +639,7 @@ function menuLoop(now){
 }
 function showMenu(){ document.getElementById('menu').style.display='flex'; requestAnimationFrame(menuLoop); }
 window.addEventListener('keydown', e => {
+  if (e.code==='Escape' && mode) { backToMenu(); return; }
   if (document.getElementById('menu').style.display!=='none' && (e.code==='Enter'||e.code==='Space')) {
     const f=document.activeElement; (f && f.tagName==='BUTTON' ? f : document.querySelector('#menu button')).click();
   }
