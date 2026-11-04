@@ -85,9 +85,18 @@ const ctx = canvas.getContext('2d');
 
 let grid, bombs, fires, powerups, players, mode, score, roundOver, roundTimer, lastTime, suddenDeath;
 let campaign = null, monsters = [];
-let keys = {};
-window.addEventListener('keydown', e => { keys[e.code]=true; if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault(); });
+let keys = {}, pressed = {};   // pressed = stisky od posledního snímku (aby se neztratil krátký ťuk)
+window.addEventListener('keydown', e => {
+  if (!e.repeat) pressed[e.code]=true;
+  keys[e.code]=true;
+  const overlayShown = document.getElementById('overlay').style.display==='flex';
+  if (mode && !overlayShown && ['Space','Enter','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+});
 window.addEventListener('keyup', e => keys[e.code]=false);
+window.addEventListener('blur', () => { keys={}; pressed={}; });
+// chyba v jednom snímku nesmí zamrazit hru – zobraz ji a jeď dál
+let lastError='';
+window.addEventListener('error', e => { lastError=e.message; });
 
 // ---------- Zvuk (jednoduchý syntetický) ----------
 let audio;
@@ -123,7 +132,8 @@ function makePlayer(id, x, y, color, ai) {
 }
 
 function startGame(m) {
-  mode = m; score=[0,0]; keys={};
+  mode = m; score=[0,0]; keys={}; pressed={}; clearPending(); lastError='';
+  if (document.activeElement) document.activeElement.blur();
   document.getElementById('menu').style.display='none';
   if (m===3) { campaign={level:1,lives:3,score:0,hasKey:false,exit:null,key:null}; newLevel(); }
   else { campaign=null; newRound(); }
@@ -411,11 +421,12 @@ function update(dt){
   // vstupy
   const p1=players[0], p2=players[1];
   movePlayer(p1,(keys.KeyD?1:0)-(keys.KeyA?1:0),(keys.KeyS?1:0)-(keys.KeyW?1:0),dt);
-  if (keys.Space){ placeBomb(p1); keys.Space=false; }
+  if (pressed.Space){ placeBomb(p1); }
   if (mode===2){
     movePlayer(p2,(keys.ArrowRight?1:0)-(keys.ArrowLeft?1:0),(keys.ArrowDown?1:0)-(keys.ArrowUp?1:0),dt);
-    if (keys.Enter){ placeBomb(p2); keys.Enter=false; }
+    if (pressed.Enter){ placeBomb(p2); }
   } else if (mode===1 && p2.alive) aiThink(p2,dt);
+  pressed={};
   if (campaign){ campaign.penaltyCooldown=(campaign.penaltyCooldown||0)-dt; updateMonsters(dt); }
 
   // bomby
@@ -449,9 +460,9 @@ function update(dt){
     if (p.alive && campaign.key.revealed && !campaign.key.taken && campaign.key.cx===cx && campaign.key.cy===cy){ campaign.key.taken=true; campaign.hasKey=true; beep(1200,0.3,'sine',0.08); }
     const allDead = monsters.every(m=>!m.alive);
     if (p.alive && campaign.exit.revealed && allDead && campaign.hasKey && campaign.exit.cx===cx && campaign.exit.cy===cy){
-      roundOver=true; setTimeout(levelDone,500); return;
+      roundOver=true; pendingTimer=setTimeout(levelDone,500); return;
     }
-    if (!p.alive || roundTimer<=0){ roundOver=true; setTimeout(loseLife,900); }
+    if (!p.alive || roundTimer<=0){ roundOver=true; pendingTimer=setTimeout(loseLife,900); }
     return;
   }
   // power-upy
@@ -468,9 +479,11 @@ function update(dt){
   const alive=players.filter(p=>p.alive);
   if (alive.length<=1 || roundTimer<=0) {
     roundOver=true;
-    setTimeout(()=>endRound(alive.length===1?alive[0]:null),900);
+    pendingTimer=setTimeout(()=>endRound(alive.length===1?alive[0]:null),900);
   }
 }
+let pendingTimer=null;
+function clearPending(){ if (pendingTimer){ clearTimeout(pendingTimer); pendingTimer=null; } }
 function killPlayer(p){ p.alive=false; beep(200,0.4,'sawtooth',0.1); }
 function spiralCells(){
   const out=[]; let x0=1,y0=1,x1=COLS-2,y1=ROWS-2;
@@ -493,7 +506,8 @@ function showOverlay(title,text,btn,next){
 }
 function backToMenu(){
   document.getElementById('overlay').style.display='none';
-  mode=0; campaign=null; roundOver=true; showMenu();
+  if (document.activeElement) document.activeElement.blur();
+  clearPending(); mode=0; campaign=null; roundOver=true; showMenu();
 }
 function endRound(winner){
   if (winner) score[winner.id]++;
@@ -507,8 +521,10 @@ function endRound(winner){
 }
 function overlayAction(){
   const ov=document.getElementById('overlay'); ov.style.display='none';
+  if (document.activeElement) document.activeElement.blur();
+  clearPending(); keys={}; pressed={};
   const next=ov.dataset.next;
-  if (next==='menu'){ mode=0; campaign=null; showMenu(); }
+  if (next==='menu' || !mode){ mode=0; campaign=null; showMenu(); }
   else if (next==='next'){ campaign.level++; newLevel(true); }
   else if (next==='retry'){ const p=players[0]; p.maxBombs=Math.max(1,p.maxBombs-1); p.fire=Math.max(2,p.fire-1); newLevel(true); }
   else { newRound(); }
@@ -674,7 +690,9 @@ requestAnimationFrame(menuLoop);
 function loop(now){
   if (!mode) { loopRunning = false; return; }
   const dt=Math.min(0.05,(now-lastTime)/1000); lastTime=now;
-  update(dt); draw();
+  try { update(dt); draw(); }
+  catch (err) { lastError=String(err && err.message || err); console.error(err); }
+  if (lastError) { ctx.fillStyle='#ff4040'; ctx.font='12px monospace'; ctx.textAlign='left'; ctx.fillText('CHYBA: '+lastError, 6, canvas.height-6); }
   requestAnimationFrame(loop);
 }
 </script>
