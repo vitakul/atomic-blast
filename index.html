@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Atomic Blast</title>
+<style>
+  :root { --bg:#141420; --panel:#1f1f30; --text:#f0f0f0; --accent:#ffb020; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:"Trebuchet MS", Verdana, sans-serif; display:flex; flex-direction:column; align-items:center; min-height:100vh; }
+  h1 { font-size:42px; margin:18px 0 4px; letter-spacing:3px; color:var(--accent); text-shadow:0 0 12px #ff6a00; }
+  #hud { display:flex; gap:40px; font-size:18px; margin:6px 0; min-height:28px; }
+  .p1 { color:#4fd3ff; } .p2 { color:#ff5c7a; }
+  canvas { background:#000; border:4px solid #333; border-radius:6px; image-rendering:pixelated; max-width:100vw; }
+  #menu, #overlay { position:fixed; inset:0; background:rgba(0,0,0,.82); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; }
+  #overlay { display:none; }
+  button { font-size:22px; padding:12px 32px; border:0; border-radius:8px; background:var(--accent); color:#222; cursor:pointer; font-weight:bold; }
+  button:hover { background:#ffd060; }
+  .help { color:#aaa; font-size:15px; text-align:center; line-height:1.6; }
+  .help b { color:#fff; }
+  #overlay h2 { font-size:40px; margin:0; }
+</style>
+</head>
+<body>
+<h1>💣 ATOMIC BLAST</h1>
+<div id="hud"><span class="p1" id="hud1"></span><span class="p2" id="hud2"></span></div>
+<canvas id="game" width="720" height="624"></canvas>
+
+<div id="menu">
+  <h2>Vyber režim</h2>
+  <button onclick="startGame(1)">1 hráč (proti počítači)</button>
+  <button onclick="startGame(2)">2 hráči</button>
+  <div class="help">
+    <b class="p1">Hráč 1:</b> WASD pohyb, <b>MEZERNÍK</b> bomba<br>
+    <b class="p2">Hráč 2 / počítač:</b> šipky pohyb, <b>ENTER</b> bomba<br>
+    Power-upy: 💣 víc bomb · 🔥 větší plamen · 👟 rychlost · 🦶 kopání bomb<br>
+    Vyhrává, kdo první získá 3 kola.
+  </div>
+</div>
+
+<div id="overlay">
+  <h2 id="ovTitle"></h2>
+  <div id="ovText" class="help"></div>
+  <button id="ovBtn" onclick="overlayAction()">Pokračovat</button>
+</div>
+
+<script>
+// ---------- Konstanty ----------
+const COLS = 15, ROWS = 13, T = 48;
+const EMPTY=0, WALL=1, BRICK=2;
+const BOMB_TIME = 2.5, FIRE_TIME = 0.5, ROUNDS_TO_WIN = 3;
+const PU_BOMB='bomb', PU_FIRE='fire', PU_SPEED='speed', PU_KICK='kick';
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+let grid, bombs, fires, powerups, players, mode, score, roundOver, roundTimer, lastTime, suddenDeath;
+let keys = {};
+window.addEventListener('keydown', e => { keys[e.code]=true; if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault(); });
+window.addEventListener('keyup', e => keys[e.code]=false);
+
+// ---------- Zvuk (jednoduchý syntetický) ----------
+let audio;
+function beep(freq, dur, type='square', vol=0.08) {
+  try {
+    audio = audio || new (window.AudioContext||window.webkitAudioContext)();
+    const o = audio.createOscillator(), g = audio.createGain();
+    o.type=type; o.frequency.value=freq; g.gain.value=vol;
+    g.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime+dur);
+    o.connect(g); g.connect(audio.destination); o.start(); o.stop(audio.currentTime+dur);
+  } catch(e){}
+}
+function explosionSound(){ beep(90,0.4,'sawtooth',0.15); beep(50,0.5,'triangle',0.15); }
+
+// ---------- Mapa ----------
+function makeGrid() {
+  const g = [];
+  for (let y=0;y<ROWS;y++){ g.push([]); for(let x=0;x<COLS;x++){
+    if (x===0||y===0||x===COLS-1||y===ROWS-1||(x%2===0&&y%2===0)) g[y].push(WALL);
+    else g[y].push(Math.random()<0.75?BRICK:EMPTY);
+  }}
+  // uvolni startovní rohy
+  const corners=[[1,1],[COLS-2,ROWS-2],[COLS-2,1],[1,ROWS-2]];
+  for (const [cx,cy] of corners) for (let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
+    const x=cx+dx,y=cy+dy; if(g[y]&&g[y][x]===BRICK&&(dx===0||dy===0)) g[y][x]=EMPTY;
+  }
+  return g;
+}
+
+function makePlayer(id, x, y, color, ai) {
+  return { id, x:x*T+T/2, y:y*T+T/2, color, ai, alive:true, maxBombs:1, fire:2, speed:2.6, kick:false,
+           dir:{x:0,y:1}, anim:0, aiTimer:0, aiTarget:null, aiPath:[] };
+}
+
+function startGame(m) {
+  mode = m; score=[0,0];
+  document.getElementById('menu').style.display='none';
+  newRound();
+  lastTime = performance.now();
+  if (!loopRunning) { loopRunning = true; requestAnimationFrame(loop); }
+}
+let loopRunning = false;
+
+function newRound() {
+  grid = makeGrid(); bombs=[]; fires=[]; powerups=[]; roundOver=false; roundTimer=120; suddenDeath=null;
+  players = [ makePlayer(0,1,1,'#4fd3ff',false), makePlayer(1,COLS-2,ROWS-2,'#ff5c7a',mode===1) ];
+}
+
+// ---------- Pomocné ----------
+const cell = v => Math.floor(v/T);
+function solidAt(cx,cy,forPlayer){
+  if (cy<0||cy>=ROWS||cx<0||cx>=COLS) return true;
+  if (grid[cy][cx]!==EMPTY) return true;
+  const b = bombs.find(b=>b.cx===cx&&b.cy===cy);
+  if (b && !(forPlayer && b.passable.includes(forPlayer.id))) return true;
+  return false;
+}
+function bombAt(cx,cy){ return bombs.find(b=>b.cx===cx&&b.cy===cy); }
+function fireAt(cx,cy){ return fires.some(f=>f.cx===cx&&f.cy===cy); }
+
+// ---------- Pohyb hráče ----------
+function movePlayer(p, dx, dy, dt) {
+  if (!p.alive) return;
+  if (dx===0&&dy===0) return;
+  p.dir={x:dx,y:dy}; p.anim+=dt*10;
+  const dist = p.speed*T*dt;
+  const R = T*0.35;
+  // pokus o pohyb v ose X a Y zvlášť, s "corner slide" pro plynulost
+  tryAxis(p,dx*dist,0,R);
+  tryAxis(p,0,dy*dist,R);
+  // kopání bomb
+  if (p.kick) {
+    const nx=cell(p.x)+dx, ny=cell(p.y)+dy; const b=bombAt(nx,ny);
+    if (b && !b.moving && Math.abs((dx?p.x:p.y)-((dx?nx:ny)*T+T/2))<T*0.9) { b.moving={x:dx,y:dy}; beep(300,0.1); }
+  }
+}
+function tryAxis(p,mx,my,R){
+  const nx=p.x+mx, ny=p.y+my;
+  if (!collides(nx,ny,R,p)) { p.x=nx; p.y=ny; return; }
+  // corner assist: zkus se posunout do středu buňky v kolmé ose
+  if (mx!==0) {
+    const cy = cell(p.y)*T+T/2;
+    const off = cy-p.y;
+    if (Math.abs(off)>2 && !collides(nx, cy, R, p)) { p.y += Math.sign(off)*Math.min(Math.abs(off), Math.abs(mx)); }
+  } else {
+    const cx = cell(p.x)*T+T/2;
+    const off = cx-p.x;
+    if (Math.abs(off)>2 && !collides(cx, ny, R, p)) { p.x += Math.sign(off)*Math.min(Math.abs(off), Math.abs(my)); }
+  }
+}
+function collides(x,y,R,p){
+  const pts=[[x-R,y-R],[x+R,y-R],[x-R,y+R],[x+R,y+R]];
+  return pts.some(([px,py])=>solidAt(cell(px),cell(py),p));
+}
+
+// ---------- Bomby ----------
+function placeBomb(p){
+  if (!p.alive) return;
+  const cx=cell(p.x), cy=cell(p.y);
+  if (bombAt(cx,cy)) return;
+  if (bombs.filter(b=>b.owner===p.id).length>=p.maxBombs) return;
+  bombs.push({cx,cy,owner:p.id,timer:BOMB_TIME,fire:p.fire,passable:[p.id],moving:null,mx:cx*T+T/2,my:cy*T+T/2});
+  beep(500,0.08,'sine',0.05);
+}
+function explode(b){
+  bombs.splice(bombs.indexOf(b),1);
+  explosionSound();
+  const add=(cx,cy,kind)=>fires.push({cx,cy,timer:FIRE_TIME,kind});
+  add(b.cx,b.cy,'c');
+  for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+    for (let i=1;i<=b.fire;i++){
+      const x=b.cx+dx*i,y=b.cy+dy*i;
+      if (x<0||y<0||x>=COLS||y>=ROWS||grid[y][x]===WALL) break;
+      if (grid[y][x]===BRICK){ grid[y][x]=EMPTY; add(x,y,dx?'h':'v'); dropPowerup(x,y); break; }
+      add(x,y,dx?'h':'v');
+      const other=bombAt(x,y); if(other){ other.timer=0; }
+    }
+  }
+}
+function dropPowerup(x,y){
+  const r=Math.random();
+  if (r<0.35) return;
+  const kind = r<0.60?PU_BOMB : r<0.82?PU_FIRE : r<0.94?PU_SPEED : PU_KICK;
+  powerups.push({cx:x,cy:y,kind});
+}
+
+// ---------- AI ----------
+function dangerMap(){
+  const d=Array.from({length:ROWS},()=>Array(COLS).fill(false));
+  for (const f of fires) d[f.cy][f.cx]=true;
+  for (const b of bombs){
+    d[b.cy][b.cx]=true;
+    for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) for(let i=1;i<=b.fire;i++){
+      const x=b.cx+dx*i,y=b.cy+dy*i; if(x<0||y<0||x>=COLS||y>=ROWS||grid[y][x]!==EMPTY) break; d[y][x]=true;
+    }
+  }
+  return d;
+}
+function bfs(sx,sy,goalFn,allowDanger){
+  const danger=dangerMap();
+  const prev=new Map(); const q=[[sx,sy]]; prev.set(sx+','+sy,null);
+  while(q.length){
+    const [x,y]=q.shift();
+    if (goalFn(x,y,danger)) { const path=[]; let k=x+','+y; while(k){ path.unshift(k.split(',').map(Number)); const p=prev.get(k); k=p?p.join(','):null; } return path; }
+    for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const nx=x+dx,ny=y+dy,key=nx+','+ny;
+      if (prev.has(key)||solidAt(nx,ny,null)) continue;
+      if (!allowDanger && danger[ny][nx]) continue;
+      prev.set(key,[x,y]); q.push([nx,ny]);
+    }
+  }
+  return null;
+}
+function aiThink(p,dt){
+  const danger=dangerMap();
+  const cx=cell(p.x), cy=cell(p.y);
+  const enemy=players[0];
+  p.aiTimer-=dt;
+  if (p.aiTimer>0 && p.aiPath.length) return followPath(p,dt);
+  p.aiTimer=0.25;
+  // 1) v nebezpečí → utíkej na bezpečné pole
+  if (danger[cy][cx]) {
+    const path=bfs(cx,cy,(x,y,d)=>!d[y][x],true);
+    p.aiPath=path?path.slice(1):[]; return followPath(p,dt);
+  }
+  // 2) může položit bombu? (sousedí s nepřítelem nebo cihlou) a má kam utéct
+  const ecx=cell(enemy.x),ecy=cell(enemy.y);
+  const nearEnemy=enemy.alive && Math.abs(ecx-cx)+Math.abs(ecy-cy)<=p.fire && (ecx===cx||ecy===cy);
+  const nearBrick=[[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy])=>grid[cy+dy]&&grid[cy+dy][cx+dx]===BRICK);
+  if ((nearEnemy||nearBrick) && bombs.filter(b=>b.owner===p.id).length<p.maxBombs) {
+    // simuluj bombu a ověř únik
+    const fake={cx,cy,owner:p.id,timer:BOMB_TIME,fire:p.fire,passable:[p.id]};
+    bombs.push(fake);
+    const esc=bfs(cx,cy,(x,y,d)=>!d[y][x],true);
+    bombs.pop();
+    if (esc && esc.length<=p.fire+3) { placeBomb(p); p.aiPath=esc.slice(1); p.aiTimer=0.4; return followPath(p,dt); }
+  }
+  // 3) jdi k power-upu, k nepříteli nebo k cihle
+  let path = powerups.length ? bfs(cx,cy,(x,y)=>powerups.some(u=>u.cx===x&&u.cy===y),false) : null;
+  if (!path && enemy.alive) path=bfs(cx,cy,(x,y)=>Math.abs(x-ecx)+Math.abs(y-ecy)<=1,false);
+  if (!path) path=bfs(cx,cy,(x,y)=>[[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy])=>grid[y+dy]&&grid[y+dy][x+dx]===BRICK),false);
+  if (!path) { // náhodný pohyb
+    const opts=[[1,0],[-1,0],[0,1],[0,-1]].filter(([dx,dy])=>!solidAt(cx+dx,cy+dy,null)&&!danger[cy+dy][cx+dx]);
+    p.aiPath = opts.length ? [[cx+opts[Math.floor(Math.random()*opts.length)][0], cy+opts[Math.floor(Math.random()*opts.length)][1]]] : [];
+  } else p.aiPath=path.slice(1);
+  followPath(p,dt);
+}
+function followPath(p,dt){
+  if (!p.aiPath.length) return;
+  const [tx,ty]=p.aiPath[0];
+  const gx=tx*T+T/2, gy=ty*T+T/2;
+  const dx=gx-p.x, dy=gy-p.y;
+  if (Math.abs(dx)<3 && Math.abs(dy)<3) { p.x=gx; p.y=gy; p.aiPath.shift(); return; }
+  movePlayer(p, Math.abs(dx)>3?Math.sign(dx):0, Math.abs(dy)>3?Math.sign(dy):0, dt);
+}
+
+// ---------- Update ----------
+function update(dt){
+  if (roundOver) return;
+  roundTimer-=dt;
+  // sudden death: od 30 s padají zdi po spirále
+  if (roundTimer<=30) {
+    if (!suddenDeath) suddenDeath={cells:spiralCells(),i:0,t:0};
+    suddenDeath.t-=dt;
+    if (suddenDeath.t<=0 && suddenDeath.i<suddenDeath.cells.length){
+      const [x,y]=suddenDeath.cells[suddenDeath.i++]; suddenDeath.t=0.25;
+      grid[y][x]=WALL; powerups=powerups.filter(u=>!(u.cx===x&&u.cy===y));
+      const b=bombAt(x,y); if(b) bombs.splice(bombs.indexOf(b),1);
+      for (const p of players) if (p.alive && cell(p.x)===x && cell(p.y)===y) killPlayer(p);
+    }
+  }
+  // vstupy
+  const p1=players[0], p2=players[1];
+  movePlayer(p1,(keys.KeyD?1:0)-(keys.KeyA?1:0),(keys.KeyS?1:0)-(keys.KeyW?1:0),dt);
+  if (keys.Space){ placeBomb(p1); keys.Space=false; }
+  if (mode===2){
+    movePlayer(p2,(keys.ArrowRight?1:0)-(keys.ArrowLeft?1:0),(keys.ArrowDown?1:0)-(keys.ArrowUp?1:0),dt);
+    if (keys.Enter){ placeBomb(p2); keys.Enter=false; }
+  } else if (p2.alive) aiThink(p2,dt);
+
+  // bomby
+  for (const b of [...bombs]){
+    b.timer-=dt;
+    // hráč už nestojí na bombě → bomba se stane pevnou
+    b.passable=b.passable.filter(id=>{ const p=players[id]; return cell(p.x)===b.cx&&cell(p.y)===b.cy; });
+    if (b.moving){
+      const nx=b.cx+b.moving.x, ny=b.cy+b.moving.y;
+      const blocked = solidAt(nx,ny,null) || players.some(p=>p.alive&&cell(p.x)===nx&&cell(p.y)===ny) || powerups.some(u=>u.cx===nx&&u.cy===ny);
+      if (blocked) { b.moving=null; b.mx=b.cx*T+T/2; b.my=b.cy*T+T/2; }
+      else {
+        b.mx+=b.moving.x*T*6*dt; b.my+=b.moving.y*T*6*dt;
+        if (Math.abs(b.mx-(nx*T+T/2))<4 && Math.abs(b.my-(ny*T+T/2))<4){ b.cx=nx; b.cy=ny; b.mx=nx*T+T/2; b.my=ny*T+T/2; }
+      }
+    }
+    if (b.timer<=0 && bombs.includes(b)) explode(b);
+  }
+  // oheň
+  for (const f of fires) f.timer-=dt;
+  fires=fires.filter(f=>f.timer>0);
+  for (const f of fires) {
+    powerups=powerups.filter(u=>!(u.cx===f.cx&&u.cy===f.cy));
+    for (const p of players) if (p.alive && cell(p.x)===f.cx && cell(p.y)===f.cy) killPlayer(p);
+  }
+  // power-upy
+  for (const p of players) if (p.alive) {
+    const i=powerups.findIndex(u=>u.cx===cell(p.x)&&u.cy===cell(p.y));
+    if (i>=0){ const u=powerups.splice(i,1)[0]; beep(900,0.15,'sine',0.06);
+      if (u.kind===PU_BOMB) p.maxBombs=Math.min(8,p.maxBombs+1);
+      if (u.kind===PU_FIRE) p.fire=Math.min(8,p.fire+1);
+      if (u.kind===PU_SPEED) p.speed=Math.min(5,p.speed+0.5);
+      if (u.kind===PU_KICK) p.kick=true;
+    }
+  }
+  // konec kola
+  const alive=players.filter(p=>p.alive);
+  if (alive.length<=1 || roundTimer<=0) {
+    roundOver=true;
+    setTimeout(()=>endRound(alive.length===1?alive[0]:null),900);
+  }
+}
+function killPlayer(p){ p.alive=false; beep(200,0.4,'sawtooth',0.1); }
+function spiralCells(){
+  const out=[]; let x0=1,y0=1,x1=COLS-2,y1=ROWS-2;
+  while(x0<=x1&&y0<=y1){
+    for(let x=x0;x<=x1;x++) out.push([x,y0]);
+    for(let y=y0+1;y<=y1;y++) out.push([x1,y]);
+    for(let x=x1-1;x>=x0;x--) out.push([x,y1]);
+    for(let y=y1-1;y>y0;y--) out.push([x0,y]);
+    x0++;y0++;x1--;y1--;
+  }
+  return out.filter(([x,y])=>grid[y][x]!==WALL);
+}
+function endRound(winner){
+  if (winner) score[winner.id]++;
+  const names=['Hráč 1', mode===1?'Počítač':'Hráč 2'];
+  const ov=document.getElementById('overlay');
+  if (score[0]>=ROUNDS_TO_WIN||score[1]>=ROUNDS_TO_WIN){
+    const w=score[0]>=ROUNDS_TO_WIN?0:1;
+    document.getElementById('ovTitle').textContent='🏆 '+names[w]+' vyhrál zápas!';
+    document.getElementById('ovText').textContent=score[0]+' : '+score[1];
+    document.getElementById('ovBtn').textContent='Zpět do menu';
+    ov.dataset.next='menu';
+  } else {
+    document.getElementById('ovTitle').textContent= winner ? names[winner.id]+' vyhrál kolo!' : 'Remíza!';
+    document.getElementById('ovText').textContent='Skóre '+score[0]+' : '+score[1]+' (hraje se do '+ROUNDS_TO_WIN+')';
+    document.getElementById('ovBtn').textContent='Další kolo';
+    ov.dataset.next='round';
+  }
+  ov.style.display='flex';
+}
+function overlayAction(){
+  const ov=document.getElementById('overlay'); ov.style.display='none';
+  if (ov.dataset.next==='menu'){ document.getElementById('menu').style.display='flex'; mode=0; }
+  else { newRound(); }
+}
+
+// ---------- Vykreslení ----------
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  for (let y=0;y<ROWS;y++) for(let x=0;x<COLS;x++){
+    const px=x*T,py=y*T;
+    ctx.fillStyle=(x+y)%2?'#3a8a3a':'#3f943f'; ctx.fillRect(px,py,T,T);
+    if (grid[y][x]===WALL){ ctx.fillStyle='#777'; ctx.fillRect(px,py,T,T); ctx.fillStyle='#999'; ctx.fillRect(px+3,py+3,T-6,T-6); ctx.fillStyle='#666'; ctx.fillRect(px+3,py+T-10,T-6,7); }
+    if (grid[y][x]===BRICK){ ctx.fillStyle='#b3592a'; ctx.fillRect(px,py,T,T); ctx.strokeStyle='#7a3515'; ctx.lineWidth=2;
+      for(let r=0;r<4;r++){ const yy=py+r*12; ctx.beginPath(); ctx.moveTo(px,yy); ctx.lineTo(px+T,yy); ctx.stroke(); const off=(r%2)*24; ctx.beginPath(); ctx.moveTo(px+off,yy); ctx.lineTo(px+off,yy+12); ctx.stroke(); }
+    }
+  }
+  // power-upy
+  for (const u of powerups){
+    const px=u.cx*T,py=u.cy*T;
+    ctx.fillStyle='#ffd34d'; ctx.fillRect(px+6,py+6,T-12,T-12);
+    ctx.font='26px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText({bomb:'💣',fire:'🔥',speed:'👟',kick:'🦶'}[u.kind],px+T/2,py+T/2+2);
+  }
+  // bomby
+  for (const b of bombs){
+    const pulse=1+0.12*Math.sin(performance.now()/90*(1+ (BOMB_TIME-b.timer)));
+    ctx.fillStyle='#222'; ctx.beginPath(); ctx.arc(b.mx,b.my+3,T*0.34*pulse,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#555'; ctx.beginPath(); ctx.arc(b.mx-6,b.my-4,T*0.1,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#ddd'; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(b.mx,b.my-T*0.3); ctx.lineTo(b.mx+8,b.my-T*0.45); ctx.stroke();
+    ctx.fillStyle=Math.floor(performance.now()/100)%2?'#ff0':'#f60'; ctx.beginPath(); ctx.arc(b.mx+8,b.my-T*0.45,4,0,Math.PI*2); ctx.fill();
+  }
+  // oheň
+  for (const f of fires){
+    const px=f.cx*T,py=f.cy*T, a=f.timer/FIRE_TIME;
+    ctx.fillStyle=`rgba(255,${Math.floor(120+120*a)},0,${0.5+0.5*a})`;
+    if (f.kind==='c') ctx.fillRect(px+4,py+4,T-8,T-8);
+    else if (f.kind==='h') ctx.fillRect(px,py+8,T,T-16);
+    else ctx.fillRect(px+8,py,T-16,T);
+    ctx.fillStyle=`rgba(255,255,180,${0.6*a})`;
+    ctx.fillRect(px+14,py+14,T-28,T-28);
+  }
+  // hráči
+  for (const p of players) if (p.alive) {
+    const bob=Math.sin(p.anim)*3;
+    ctx.fillStyle='rgba(0,0,0,.3)'; ctx.beginPath(); ctx.ellipse(p.x,p.y+T*0.38,T*0.3,T*0.12,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=p.color; ctx.fillRect(p.x-12,p.y-6+bob,24,24); // tělo
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(p.x,p.y-14+bob,13,0,Math.PI*2); ctx.fill(); // hlava
+    ctx.fillStyle=p.color; ctx.beginPath(); ctx.arc(p.x,p.y-16+bob,13,Math.PI,0); ctx.fill(); // helma
+    ctx.fillStyle='#222'; ctx.fillRect(p.x-6+p.dir.x*3,p.y-12+bob,4,4); ctx.fillRect(p.x+2+p.dir.x*3,p.y-12+bob,4,4); // oči
+    ctx.fillStyle='#222'; ctx.fillRect(p.x-11,p.y+18+bob,8,5); ctx.fillRect(p.x+3,p.y+18-bob,8,5); // nohy
+  }
+  // HUD
+  const names=['Hráč 1', mode===1?'Počítač':'Hráč 2'];
+  players.forEach((p,i)=>{
+    document.getElementById('hud'+(i+1)).textContent=`${names[i]}: ${score[i]} ★  💣${p.maxBombs} 🔥${p.fire} 👟${p.speed.toFixed(1)}${p.kick?' 🦶':''}${p.alive?'':' ☠'}`;
+  });
+  // časomíra
+  ctx.fillStyle=roundTimer<=30?'#ff4040':'#fff'; ctx.font='bold 20px monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  const t=Math.max(0,Math.ceil(roundTimer));
+  ctx.fillText(`${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`, canvas.width/2, T/2);
+}
+
+function loop(now){
+  if (!mode) { loopRunning = false; return; }
+  const dt=Math.min(0.05,(now-lastTime)/1000); lastTime=now;
+  update(dt); draw();
+  requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html>
