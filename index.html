@@ -420,7 +420,9 @@ function update(dt){
   for (const b of [...bombs]){
     b.timer-=dt;
     // hráč už nestojí na bombě → bomba se stane pevnou
-    b.passable=b.passable.filter(id=>{ const p=players[id]; return cell(p.x)===b.cx&&cell(p.y)===b.cy; });
+    // průchozí zůstává, dokud se tělo hráče (ne jen jeho střed) ještě dotýká políčka bomby
+    b.passable=b.passable.filter(id=>{ const p=players[id]; const R=T*0.35+1;
+      return Math.abs(p.x-(b.cx*T+T/2))<T/2+R && Math.abs(p.y-(b.cy*T+T/2))<T/2+R; });
     if (b.moving){
       const nx=b.cx+b.moving.x, ny=b.cy+b.moving.y;
       const blocked = solidAt(nx,ny,null) || players.some(p=>p.alive&&cell(p.x)===nx&&cell(p.y)===ny) || powerups.some(u=>u.cx===nx&&u.cy===ny);
