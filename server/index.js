@@ -86,16 +86,22 @@ function tick(room) {
   }
 }
 
-const fs = require('fs'), path = require('path'), os = require('os');
+const fs = require('fs'), path = require('path'), os = require('os'), crypto = require('crypto');
 const GAME_HTML = path.join(__dirname, '..', 'index.html');
+// Verze klienta = otisk souboru index.html na disku. Server ji vloží do stránky a pošle při připojení;
+// starý otevřený klient se při neshodě sám obnoví.
+function readGame() {
+  const html = fs.readFileSync(GAME_HTML, 'utf8');
+  const version = crypto.createHash('sha1').update(html).digest('hex').slice(0, 10);
+  return { html: html.replace('__CLIENT_VERSION__', version), version };
+}
+function currentVersion() { try { return readGame().version; } catch { return null; } }
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  if (req.url === '/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, rooms: rooms.size, players: clients.size })); }
+  if (req.url === '/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, rooms: rooms.size, players: clients.size, version: currentVersion() })); }
   else if (req.url === '/' || req.url.startsWith('/index.html') || req.url.startsWith('/?')) {
-    fs.readFile(GAME_HTML, (err, data) => {
-      if (err) { res.writeHead(500); res.end('index.html not found'); return; }
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' }); res.end(data);
-    });
+    try { const g = readGame(); res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' }); res.end(g.html); }
+    catch (err) { res.writeHead(500); res.end('index.html not found'); }
   }
   else { res.writeHead(404); res.end(); }
 });
@@ -108,6 +114,7 @@ const wss = new WebSocketServer({ server });
 
 wss.on('connection', ws => {
   ws.isAlive = true;
+  send(ws, { t: 'hello', v: currentVersion() });
   ws.on('pong', () => { ws.isAlive = true; });
   ws.on('message', raw => {
     let msg; try { msg = JSON.parse(raw); } catch { return; }

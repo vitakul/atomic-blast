@@ -753,6 +753,7 @@ const NET_URL = (() => {
   return null;
 })();
 let net = { ws:null, id:null, code:null, host:null, phase:'lobby', score:{}, banner:null, lastSent:'', targets:{}, names:{} };
+const CLIENT_VERSION = '__CLIENT_VERSION__';   // doplní server při servírování stránky
 const $ = id => document.getElementById(id);
 function setControls(c){
   net.controls=c; try { localStorage.setItem('ab_controls', c); } catch(e){}
@@ -792,6 +793,13 @@ function netLeaveUI(msg){
 }
 function netMessage(m){
   switch (m.t) {
+    case 'hello': {
+      // starý otevřený klient vs. novější soubor na serveru → obnovit stránku
+      if (m.v && !CLIENT_VERSION.startsWith('__') && m.v !== CLIENT_VERSION) {
+        $('netStatus').textContent='Na serveru je nová verze hry, obnovuji stránku…';
+        setTimeout(() => location.reload(), 800);
+      }
+      break; }
     case 'joined': net.id=m.id; net.code=m.code; $('online').style.display='none'; $('lobby').style.display='flex'; break;
     case 'lobby': {
       net.host=m.host; net.phase=m.phase; net.score=m.score||{};
