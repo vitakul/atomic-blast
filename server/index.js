@@ -120,7 +120,7 @@ wss.on('connection', ws => {
       case 'start': { if (!c) return; const room = c.room;
         if (room.hostId !== c.id) return send(ws, { t: 'error', msg: 'Hru může spustit jen zakladatel.' });
         if (room.members.size < 2) return send(ws, { t: 'error', msg: 'Potřebujete aspoň 2 hráče.' });
-        if (room.phase !== 'lobby') return;
+        if (room.phase !== 'lobby') return send(ws, { t: 'error', msg: 'Zápas ještě běží – počkej, až skončí.' });
         startMatch(room); break; }
       case 'settings': { if (!c) return; const room = c.room;
         if (room.hostId !== c.id) return send(ws, { t: 'error', msg: 'Nastavení může měnit jen zakladatel.' });

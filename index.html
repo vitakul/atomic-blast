@@ -801,10 +801,12 @@ function netMessage(m){
       renderSettings(m.settings || {}, isHost);
       $('lobbyStart').style.display = isHost ? '' : 'none';
       $('lobbyHint').textContent = isHost ? (m.players.length<2 ? 'Čekáme na dalšího hráče…' : 'Můžeš spustit hru.') : 'Čekáme, až zakladatel spustí hru…';
-      if (mode===4) { mode=0; $('lobby').style.display='flex'; }
+      // Do lobby se vracíme jen když server opravdu skončil zápas – ne když někdo odejde uprostřed kola
+      if (mode===4 && m.phase==='lobby') { mode=0; $('lobby').style.display='flex'; }
+      if (mode===0 && m.phase!=='lobby') { $('lobbyHint').textContent='Kolo ještě běží, za chvíli se připojíš…'; }
       break; }
     case 'round_start': {
-      $('lobby').style.display='none'; net.score=m.score||{}; net.banner=null; net.targets={}; net.names={};
+      $('lobby').style.display='none'; net.score=m.score||{}; net.banner=null; net.toast=null; net.targets={}; net.names={};
       for (const p of m.players) net.names[p.id]=p.name;
       campaign=null; score=[0,0]; players=[]; bombs=[]; fires=[]; powerups=[]; monsters=[]; grid=makeGrid(); roundOver=false; roundTimer=120; suddenDeath=null;
       keys={}; pressed={}; net.lastSent='';
@@ -817,7 +819,7 @@ function netMessage(m){
       net.banner = { text: txt, sub: m.matchOver ? 'Návrat do lobby…' : 'Další kolo za chvíli…' };
       break; }
     case 'error': $('netStatus').textContent=m.msg; if ($('lobby').style.display==='flex') $('lobbyHint').textContent=m.msg; break;
-    case 'info': if ($('lobby').style.display==='flex') $('lobbyHint').textContent=m.msg; break;
+    case 'info': if (mode===4) net.toast={text:m.msg, until:performance.now()+3000}; else if ($('lobby').style.display==='flex') $('lobbyHint').textContent=m.msg; break;
   }
 }
 function esc(s){ return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
@@ -865,6 +867,11 @@ function drawNetHud(){
   const parts = players.map(p => `<span style="color:${p.color}">${esc(p.name||('Hráč '+(p.id+1)))}: ${net.score[p.id]||0} ★ 💣${p.maxBombs} 🔥${p.fire}${p.kick?' 🦶':''}${p.alive?'':' ☠'}</span>`);
   document.getElementById('hud1').innerHTML = parts.join('&nbsp;&nbsp;·&nbsp;&nbsp;');
   document.getElementById('hud2').textContent = 'místnost '+net.code+' · '+(net.controls==='wasd'?'WASD':'šipky')+' + mezerník · ESC = odejít';
+  if (net.toast && performance.now()<net.toast.until) {
+    ctx.fillStyle='rgba(0,0,0,.6)'; ctx.fillRect(canvas.width/2-180,canvas.height-44,360,32);
+    ctx.fillStyle='#fff'; ctx.font='22px "VT323", monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(net.toast.text, canvas.width/2, canvas.height-28);
+  }
   if (net.banner) {
     ctx.fillStyle='rgba(0,0,0,.6)'; ctx.fillRect(0,canvas.height/2-60,canvas.width,120);
     ctx.fillStyle='#ffb020'; ctx.font='bold 34px "VT323", monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
