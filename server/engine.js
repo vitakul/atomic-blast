@@ -79,7 +79,7 @@ function dropPowerup(s, x, y) {
   const r = Math.random();
   if (r < 0.35) return;
   const kind = r < 0.60 ? 'bomb' : r < 0.82 ? 'fire' : r < 0.94 ? 'speed' : 'kick';
-  s.powerups.push({ cx: x, cy: y, kind });
+  s.powerups.push({ cx: x, cy: y, kind, shield: FIRE_TIME + 0.05 });   // odolný vůči plameni, který ho odkryl
 }
 function explode(s, b) {
   s.bombs.splice(s.bombs.indexOf(b), 1);
@@ -146,8 +146,9 @@ function step(s, inputs, dt) {
   }
   for (const f of s.fires) f.timer -= dt;
   s.fires = s.fires.filter(f => f.timer > 0);
+  for (const u of s.powerups) u.shield = (u.shield || 0) - dt;
   for (const f of s.fires) {
-    s.powerups = s.powerups.filter(u => !(u.cx === f.cx && u.cy === f.cy));
+    s.powerups = s.powerups.filter(u => u.shield > 0 || !(u.cx === f.cx && u.cy === f.cy));
     for (const p of s.players) if (p.alive && cell(p.x) === f.cx && cell(p.y) === f.cy) killPlayer(s, p);
   }
   for (const p of s.players) if (p.alive) {

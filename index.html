@@ -372,7 +372,7 @@ function dropPowerup(x,y,force){
   const r=Math.random();
   if (!force && r<0.35) return;
   const kind = r<0.60?PU_BOMB : r<0.82?PU_FIRE : r<0.94?PU_SPEED : PU_KICK;
-  powerups.push({cx:x,cy:y,kind});
+  powerups.push({cx:x,cy:y,kind,shield:FIRE_TIME+0.05});   // odolný vůči plameni, který ho odkryl
 }
 
 // ---------- AI ----------
@@ -492,8 +492,9 @@ function update(dt){
   // oheň
   for (const f of fires) f.timer-=dt;
   fires=fires.filter(f=>f.timer>0);
+  for (const u of powerups) u.shield=(u.shield||0)-dt;
   for (const f of fires) {
-    powerups=powerups.filter(u=>!(u.cx===f.cx&&u.cy===f.cy));
+    powerups=powerups.filter(u=>u.shield>0 || !(u.cx===f.cx&&u.cy===f.cy));
     for (const p of players) if (p.alive && cell(p.x)===f.cx && cell(p.y)===f.cy) killPlayer(p);
   }
   if (campaign) {
