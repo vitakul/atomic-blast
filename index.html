@@ -512,6 +512,16 @@ function update(dt){
     powerups=powerups.filter(u=>u.shield>0 || !(u.cx===f.cx&&u.cy===f.cy));
     for (const p of players) if (p.alive && fireHits(f,p)) killPlayer(p);
   }
+  // power-upy (musí být před větví kampaně, ta krok ukončuje)
+  for (const p of players) if (p.alive) {
+    const i=powerups.findIndex(u=>u.cx===cell(p.x)&&u.cy===cell(p.y));
+    if (i>=0){ const u=powerups.splice(i,1)[0]; beep(900,0.15,'sine',0.06);
+      if (u.kind===PU_BOMB) p.maxBombs=Math.min(8,p.maxBombs+1);
+      if (u.kind===PU_FIRE) p.fire=Math.min(8,p.fire+1);
+      if (u.kind===PU_SPEED) p.speed=Math.min(5,p.speed+0.5);
+      if (u.kind===PU_KICK) p.kick=true;
+    }
+  }
   if (campaign) {
     monsterHitByFire();
     const p=players[0], cx=cell(p.x), cy=cell(p.y);
@@ -522,16 +532,6 @@ function update(dt){
     }
     if (!p.alive || roundTimer<=0){ roundOver=true; pendingTimer=setTimeout(loseLife,900); }
     return;
-  }
-  // power-upy
-  for (const p of players) if (p.alive) {
-    const i=powerups.findIndex(u=>u.cx===cell(p.x)&&u.cy===cell(p.y));
-    if (i>=0){ const u=powerups.splice(i,1)[0]; beep(900,0.15,'sine',0.06);
-      if (u.kind===PU_BOMB) p.maxBombs=Math.min(8,p.maxBombs+1);
-      if (u.kind===PU_FIRE) p.fire=Math.min(8,p.fire+1);
-      if (u.kind===PU_SPEED) p.speed=Math.min(5,p.speed+0.5);
-      if (u.kind===PU_KICK) p.kick=true;
-    }
   }
   // konec kola
   const alive=players.filter(p=>p.alive);
