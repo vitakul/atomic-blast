@@ -4,21 +4,41 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Atomic Blast</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
 <style>
-  :root { --bg:#141420; --panel:#1f1f30; --text:#f0f0f0; --accent:#ffb020; }
+  :root { --bg:#141420; --panel:#1f1f30; --text:#f0f0f0; --accent:#ffb020; --pixel:"Press Start 2P", "Courier New", monospace; --retro:"VT323", "Courier New", monospace; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font-family:"Trebuchet MS", Verdana, sans-serif; display:flex; flex-direction:column; align-items:center; min-height:100vh; }
-  h1 { font-size:42px; margin:18px 0 4px; letter-spacing:3px; color:var(--accent); text-shadow:0 0 12px #ff6a00; }
+  h1 { font-family:var(--pixel); font-size:28px; margin:22px 0 10px; color:var(--accent); text-shadow:3px 3px 0 #b03000, 6px 6px 0 #000; }
   #hud { display:flex; gap:40px; font-size:18px; margin:6px 0; min-height:28px; }
   .p1 { color:#4fd3ff; } .p2 { color:#ff5c7a; }
-  canvas { background:#000; border:4px solid #333; border-radius:6px; image-rendering:pixelated; max-width:100vw; }
-  #menu, #overlay { position:fixed; inset:0; background:rgba(0,0,0,.82); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; }
-  #overlay { display:none; }
-  button { font-size:22px; padding:12px 32px; border:0; border-radius:8px; background:var(--accent); color:#222; cursor:pointer; font-weight:bold; }
-  button:hover { background:#ffd060; }
-  .help { color:#aaa; font-size:15px; text-align:center; line-height:1.6; }
+  #game { background:#000; border:4px solid #333; border-radius:6px; image-rendering:pixelated; max-width:100vw; }
+  #menu, #overlay { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; }
+  #menu { background:#0b0b14; }
+  #menuCanvas { position:absolute; inset:0; width:100%; height:100%; image-rendering:pixelated; opacity:.55; }
+  #overlay { display:none; background:rgba(0,0,0,.85); }
+  /* CRT scanlines */
+  #menu::after, #overlay::after { content:""; position:absolute; inset:0; pointer-events:none;
+    background:repeating-linear-gradient(0deg, rgba(0,0,0,.35) 0 2px, transparent 2px 4px); mix-blend-mode:multiply; }
+  .panel { position:relative; z-index:1; background:#1a1a2e; border:4px solid #fff; outline:4px solid #000; box-shadow:0 0 0 8px #1a1a2e, 0 0 0 12px #ffb020, 12px 12px 0 12px #000;
+    padding:28px 36px; display:flex; flex-direction:column; align-items:center; gap:16px; max-width:92vw; }
+  .logo { font-family:var(--pixel); font-size:34px; line-height:1.3; text-align:center; color:#ffb020;
+    text-shadow:4px 4px 0 #b03000, 8px 8px 0 #000; margin:0 0 6px; }
+  .logo small { display:block; font-size:11px; color:#4fd3ff; text-shadow:2px 2px 0 #000; margin-top:10px; letter-spacing:2px; }
+  .menu-title { font-family:var(--retro); font-size:22px; letter-spacing:2px; color:#ff5c7a; margin:4px 0 0; }
+  button { font-family:var(--retro); font-size:26px; line-height:1; letter-spacing:1px; padding:10px 22px; width:100%; max-width:440px; color:#fff; cursor:pointer; text-align:left;
+    background:#2b2b48; border:4px solid #fff; box-shadow:4px 4px 0 #000; position:relative; }
+  button::before { content:"▶"; position:absolute; left:8px; opacity:0; color:#ffb020; }
+  button:hover, button:focus { background:#ffb020; color:#1a1a2e; border-color:#fff; outline:none; padding-left:30px; }
+  button:hover::before, button:focus::before { opacity:1; animation:blink .5s steps(1) infinite; }
+  button:active { transform:translate(4px,4px); box-shadow:none; }
+  @keyframes blink { 50% { opacity:0; } }
+  .help { font-family:var(--retro); color:#9fa8c7; font-size:19px; text-align:center; line-height:1.5; letter-spacing:1px; }
   .help b { color:#fff; }
-  #overlay h2 { font-size:40px; margin:0; }
+  .press { font-family:var(--pixel); font-size:10px; color:#fff; animation:blink 1s steps(1) infinite; margin-top:4px; }
+  #overlay h2 { font-family:var(--retro); font-size:40px; margin:0; text-align:center; line-height:1.2; color:#ffb020; text-shadow:3px 3px 0 #000; }
+  #overlay .help { font-size:22px; }
 </style>
 </head>
 <body>
@@ -27,21 +47,28 @@
 <canvas id="game" width="720" height="624"></canvas>
 
 <div id="menu">
-  <h2>Vyber režim</h2>
-  <button onclick="startGame(1)">1 hráč (proti počítači)</button>
-  <button onclick="startGame(2)">2 hráči</button>
-  <div class="help">
-    <b class="p1">Hráč 1:</b> WASD pohyb, <b>MEZERNÍK</b> bomba<br>
-    <b class="p2">Hráč 2 / počítač:</b> šipky pohyb, <b>ENTER</b> bomba<br>
-    Power-upy: 💣 víc bomb · 🔥 větší plamen · 👟 rychlost · 🦶 kopání bomb<br>
-    Vyhrává, kdo první získá 3 kola.
+  <canvas id="menuCanvas" width="720" height="480"></canvas>
+  <div class="panel">
+    <div class="logo">ATOMIC<br>BLAST<small>★ A BOMBERMAN TRIBUTE ★</small></div>
+    <div class="menu-title">— VYBER REŽIM —</div>
+    <button onclick="startGame(1)">1 HRÁČ · PROTI POČÍTAČI</button>
+    <button onclick="startGame(2)">2 HRÁČI · ARÉNA</button>
+    <button onclick="startGame(3)">KAMPAŇ · PŘÍŠERY, KLÍČ, PORTÁL</button>
+    <div class="help">
+      <b class="p1">HRÁČ 1:</b> W A S D + MEZERNÍK &nbsp;·&nbsp; <b class="p2">HRÁČ 2:</b> ŠIPKY + ENTER<br>
+      💣 VÍC BOMB &nbsp; 🔥 VĚTŠÍ PLAMEN &nbsp; 👟 RYCHLOST &nbsp; 🦶 KOPÁNÍ<br>
+      ARÉNA: KDO PRVNÍ VYHRAJE 3 KOLA &nbsp;·&nbsp; KAMPAŇ: 3 ŽIVOTY, 🔑 + 🌀 POD CIHLAMI
+    </div>
+    <div class="press">PRESS START</div>
   </div>
 </div>
 
 <div id="overlay">
-  <h2 id="ovTitle"></h2>
-  <div id="ovText" class="help"></div>
-  <button id="ovBtn" onclick="overlayAction()">Pokračovat</button>
+  <div class="panel">
+    <h2 id="ovTitle"></h2>
+    <div id="ovText" class="help"></div>
+    <button id="ovBtn" onclick="overlayAction()">POKRAČOVAT</button>
+  </div>
 </div>
 
 <script>
@@ -55,6 +82,7 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 
 let grid, bombs, fires, powerups, players, mode, score, roundOver, roundTimer, lastTime, suddenDeath;
+let campaign = null, monsters = [];
 let keys = {};
 window.addEventListener('keydown', e => { keys[e.code]=true; if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault(); });
 window.addEventListener('keyup', e => keys[e.code]=false);
@@ -93,17 +121,113 @@ function makePlayer(id, x, y, color, ai) {
 }
 
 function startGame(m) {
-  mode = m; score=[0,0];
+  mode = m; score=[0,0]; keys={};
   document.getElementById('menu').style.display='none';
-  newRound();
+  if (m===3) { campaign={level:1,lives:3,score:0,hasKey:false,exit:null,key:null}; newLevel(); }
+  else { campaign=null; newRound(); }
   lastTime = performance.now();
   if (!loopRunning) { loopRunning = true; requestAnimationFrame(loop); }
 }
 let loopRunning = false;
 
 function newRound() {
-  grid = makeGrid(); bombs=[]; fires=[]; powerups=[]; roundOver=false; roundTimer=120; suddenDeath=null;
+  grid = makeGrid(); bombs=[]; fires=[]; powerups=[]; monsters=[]; roundOver=false; roundTimer=120; suddenDeath=null;
   players = [ makePlayer(0,1,1,'#4fd3ff',false), makePlayer(1,COLS-2,ROWS-2,'#ff5c7a',mode===1) ];
+}
+
+// ---------- Kampaň ----------
+const MONSTER_TYPES = {
+  balloon: { speed:1.3, color:'#ff9ad5', passBricks:false, chase:false, points:100 },
+  ghost:   { speed:1.6, color:'#b0c4ff', passBricks:true,  chase:false, points:200 },
+  hunter:  { speed:2.2, color:'#ff4d4d', passBricks:false, chase:true,  points:400 },
+};
+function newLevel(keepPlayer) {
+  const L=campaign.level;
+  grid = makeGrid(); bombs=[]; fires=[]; powerups=[]; monsters=[]; roundOver=false; roundTimer=180; suddenDeath=null;
+  const old = keepPlayer && players ? players[0] : null;
+  const p = makePlayer(0,1,1,'#4fd3ff',false);
+  if (old) { p.maxBombs=old.maxBombs; p.fire=old.fire; p.speed=old.speed; p.kick=old.kick; }
+  players=[p];
+  campaign.hasKey=false;
+  // cihly, pod kterými je klíč a portál (daleko od startu)
+  const bricks=[]; for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++) if(grid[y][x]===BRICK && x+y>8) bricks.push([x,y]);
+  const pick=()=>bricks.splice(Math.floor(Math.random()*bricks.length),1)[0];
+  const e=pick(); campaign.exit={cx:e[0],cy:e[1],revealed:false};
+  const k=pick(); campaign.key={cx:k[0],cy:k[1],revealed:false,taken:false};
+  // příšery podle levelu
+  const count=2+L;
+  const empties=[]; for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++) if(grid[y][x]===EMPTY && x+y>10) empties.push([x,y]);
+  for (let i=0;i<count && empties.length;i++){
+    const [x,y]=empties.splice(Math.floor(Math.random()*empties.length),1)[0];
+    let type='balloon';
+    if (L>=3 && i%3===1) type='ghost';
+    if (L>=5 && i%3===2) type='hunter';
+    if (L>=8 && i%2===0) type='hunter';
+    const t=MONSTER_TYPES[type];
+    monsters.push({type,cx:x,cy:y,x:x*T+T/2,y:y*T+T/2,dir:[0,0],speed:t.speed+L*0.08,think:0,anim:Math.random()*6,alive:true});
+  }
+}
+function monsterCanEnter(m,x,y){
+  if (y<0||y>=ROWS||x<0||x>=COLS) return false;
+  if (grid[y][x]===WALL) return false;
+  if (grid[y][x]===BRICK && !MONSTER_TYPES[m.type].passBricks) return false;
+  if (bombAt(x,y)) return false;
+  return true;
+}
+function updateMonsters(dt){
+  const p=players[0];
+  for (const m of monsters){
+    if (!m.alive) continue;
+    m.anim+=dt*6;
+    const gx=m.cx*T+T/2, gy=m.cy*T+T/2;
+    const atCenter=Math.abs(m.x-gx)<1.5 && Math.abs(m.y-gy)<1.5;
+    if (atCenter){
+      m.x=gx; m.y=gy;
+      // vyber další buňku
+      let next=null;
+      const t=MONSTER_TYPES[m.type];
+      if (t.chase && p.alive){
+        m.think-=dt;
+        if (m.think<=0){ m.think=0.5;
+          const path=bfs(m.cx,m.cy,(x,y)=>x===cell(p.x)&&y===cell(p.y),true);
+          m.path=path&&path.length>1?path.slice(1):null;
+        }
+        if (m.path && m.path.length){ const [nx,ny]=m.path[0]; if(monsterCanEnter(m,nx,ny)){ next=[nx-m.cx,ny-m.cy]; m.path.shift(); } else m.path=null; }
+      }
+      if (!next){
+        const dirs=[[1,0],[-1,0],[0,1],[0,-1]].filter(([dx,dy])=>monsterCanEnter(m,m.cx+dx,m.cy+dy));
+        const fwd=dirs.find(([dx,dy])=>dx===m.dir[0]&&dy===m.dir[1]);
+        if (fwd && Math.random()<0.7) next=fwd;
+        else if (dirs.length) next=dirs[Math.floor(Math.random()*dirs.length)];
+      }
+      if (!next){ m.dir=[0,0]; continue; }
+      m.dir=next; m.cx+=next[0]; m.cy+=next[1];
+    } else {
+      const step=m.speed*T*dt;
+      m.x+=Math.sign(gx-m.x)*Math.min(step,Math.abs(gx-m.x));
+      m.y+=Math.sign(gy-m.y)*Math.min(step,Math.abs(gy-m.y));
+    }
+    // kolize s hráčem
+    if (p.alive && Math.abs(m.x-p.x)<T*0.6 && Math.abs(m.y-p.y)<T*0.6) killPlayer(p);
+  }
+}
+function monsterHitByFire(){
+  for (const f of fires) for (const m of monsters) if (m.alive && cell(m.x)===f.cx && cell(m.y)===f.cy){
+    m.alive=false; campaign.score+=MONSTER_TYPES[m.type].points*campaign.level; beep(150,0.3,'square',0.1);
+    if (Math.random()<0.3) dropPowerup(m.cx,m.cy,true);
+  }
+}
+function loseLife(){
+  campaign.lives--;
+  if (campaign.lives<=0) {
+    showOverlay('☠ Konec hry', 'Dostal ses do levelu '+campaign.level+' · skóre '+campaign.score, 'Zpět do menu', 'menu');
+  } else {
+    showOverlay('Ztratil jsi život', 'Zbývá životů: '+campaign.lives+' · level '+campaign.level, 'Zkusit znovu', 'retry');
+  }
+}
+function levelDone(){
+  campaign.score+=1000*campaign.level+Math.ceil(roundTimer)*5;
+  showOverlay('🌀 Level '+campaign.level+' hotov!', 'Skóre '+campaign.score+' · životů '+campaign.lives, 'Další level', 'next');
 }
 
 // ---------- Pomocné ----------
@@ -171,15 +295,28 @@ function explode(b){
     for (let i=1;i<=b.fire;i++){
       const x=b.cx+dx*i,y=b.cy+dy*i;
       if (x<0||y<0||x>=COLS||y>=ROWS||grid[y][x]===WALL) break;
-      if (grid[y][x]===BRICK){ grid[y][x]=EMPTY; add(x,y,dx?'h':'v'); dropPowerup(x,y); break; }
+      if (grid[y][x]===BRICK){ grid[y][x]=EMPTY; add(x,y,dx?'h':'v'); if(!revealSecret(x,y)) dropPowerup(x,y); break; }
       add(x,y,dx?'h':'v');
+      // oheň na odkrytém portálu probudí další příšery (jako v originále)
+      if (campaign && campaign.exit.revealed && campaign.exit.cx===x && campaign.exit.cy===y) spawnPenaltyMonsters(x,y);
       const other=bombAt(x,y); if(other){ other.timer=0; }
     }
   }
 }
-function dropPowerup(x,y){
+function revealSecret(x,y){
+  if (!campaign) return false;
+  if (campaign.exit.cx===x&&campaign.exit.cy===y){ campaign.exit.revealed=true; beep(700,0.2,'sine',0.06); return true; }
+  if (campaign.key.cx===x&&campaign.key.cy===y){ campaign.key.revealed=true; beep(700,0.2,'sine',0.06); return true; }
+  return false;
+}
+function spawnPenaltyMonsters(x,y){
+  if (campaign.penaltyCooldown>0) return;
+  campaign.penaltyCooldown=1;
+  for (let i=0;i<2;i++) monsters.push({type:'balloon',cx:x,cy:y,x:x*T+T/2,y:y*T+T/2,dir:[0,0],speed:1.5,think:0,anim:0,alive:true,grace:1.0});
+}
+function dropPowerup(x,y,force){
   const r=Math.random();
-  if (r<0.35) return;
+  if (!force && r<0.35) return;
   const kind = r<0.60?PU_BOMB : r<0.82?PU_FIRE : r<0.94?PU_SPEED : PU_KICK;
   powerups.push({cx:x,cy:y,kind});
 }
@@ -258,8 +395,8 @@ function followPath(p,dt){
 function update(dt){
   if (roundOver) return;
   roundTimer-=dt;
-  // sudden death: od 30 s padají zdi po spirále
-  if (roundTimer<=30) {
+  // sudden death: od 30 s padají zdi po spirále (jen aréna)
+  if (!campaign && roundTimer<=30) {
     if (!suddenDeath) suddenDeath={cells:spiralCells(),i:0,t:0};
     suddenDeath.t-=dt;
     if (suddenDeath.t<=0 && suddenDeath.i<suddenDeath.cells.length){
@@ -276,7 +413,8 @@ function update(dt){
   if (mode===2){
     movePlayer(p2,(keys.ArrowRight?1:0)-(keys.ArrowLeft?1:0),(keys.ArrowDown?1:0)-(keys.ArrowUp?1:0),dt);
     if (keys.Enter){ placeBomb(p2); keys.Enter=false; }
-  } else if (p2.alive) aiThink(p2,dt);
+  } else if (mode===1 && p2.alive) aiThink(p2,dt);
+  if (campaign){ campaign.penaltyCooldown=(campaign.penaltyCooldown||0)-dt; updateMonsters(dt); }
 
   // bomby
   for (const b of [...bombs]){
@@ -300,6 +438,17 @@ function update(dt){
   for (const f of fires) {
     powerups=powerups.filter(u=>!(u.cx===f.cx&&u.cy===f.cy));
     for (const p of players) if (p.alive && cell(p.x)===f.cx && cell(p.y)===f.cy) killPlayer(p);
+  }
+  if (campaign) {
+    monsterHitByFire();
+    const p=players[0], cx=cell(p.x), cy=cell(p.y);
+    if (p.alive && campaign.key.revealed && !campaign.key.taken && campaign.key.cx===cx && campaign.key.cy===cy){ campaign.key.taken=true; campaign.hasKey=true; beep(1200,0.3,'sine',0.08); }
+    const allDead = monsters.every(m=>!m.alive);
+    if (p.alive && campaign.exit.revealed && allDead && campaign.hasKey && campaign.exit.cx===cx && campaign.exit.cy===cy){
+      roundOver=true; setTimeout(levelDone,500); return;
+    }
+    if (!p.alive || roundTimer<=0){ roundOver=true; setTimeout(loseLife,900); }
+    return;
   }
   // power-upy
   for (const p of players) if (p.alive) {
@@ -330,27 +479,29 @@ function spiralCells(){
   }
   return out.filter(([x,y])=>grid[y][x]!==WALL);
 }
+function showOverlay(title,text,btn,next){
+  const ov=document.getElementById('overlay');
+  document.getElementById('ovTitle').textContent=title;
+  document.getElementById('ovText').textContent=text;
+  document.getElementById('ovBtn').textContent=btn;
+  ov.dataset.next=next; ov.style.display='flex';
+}
 function endRound(winner){
   if (winner) score[winner.id]++;
   const names=['Hráč 1', mode===1?'Počítač':'Hráč 2'];
-  const ov=document.getElementById('overlay');
   if (score[0]>=ROUNDS_TO_WIN||score[1]>=ROUNDS_TO_WIN){
     const w=score[0]>=ROUNDS_TO_WIN?0:1;
-    document.getElementById('ovTitle').textContent='🏆 '+names[w]+' vyhrál zápas!';
-    document.getElementById('ovText').textContent=score[0]+' : '+score[1];
-    document.getElementById('ovBtn').textContent='Zpět do menu';
-    ov.dataset.next='menu';
+    showOverlay('🏆 '+names[w]+' vyhrál zápas!', score[0]+' : '+score[1], 'Zpět do menu', 'menu');
   } else {
-    document.getElementById('ovTitle').textContent= winner ? names[winner.id]+' vyhrál kolo!' : 'Remíza!';
-    document.getElementById('ovText').textContent='Skóre '+score[0]+' : '+score[1]+' (hraje se do '+ROUNDS_TO_WIN+')';
-    document.getElementById('ovBtn').textContent='Další kolo';
-    ov.dataset.next='round';
+    showOverlay(winner ? names[winner.id]+' vyhrál kolo!' : 'Remíza!', 'Skóre '+score[0]+' : '+score[1]+' (hraje se do '+ROUNDS_TO_WIN+')', 'Další kolo', 'round');
   }
-  ov.style.display='flex';
 }
 function overlayAction(){
   const ov=document.getElementById('overlay'); ov.style.display='none';
-  if (ov.dataset.next==='menu'){ document.getElementById('menu').style.display='flex'; mode=0; }
+  const next=ov.dataset.next;
+  if (next==='menu'){ mode=0; campaign=null; showMenu(); }
+  else if (next==='next'){ campaign.level++; newLevel(true); }
+  else if (next==='retry'){ const p=players[0]; p.maxBombs=Math.max(1,p.maxBombs-1); p.fire=Math.max(2,p.fire-1); newLevel(true); }
   else { newRound(); }
 }
 
@@ -363,6 +514,20 @@ function draw(){
     if (grid[y][x]===WALL){ ctx.fillStyle='#777'; ctx.fillRect(px,py,T,T); ctx.fillStyle='#999'; ctx.fillRect(px+3,py+3,T-6,T-6); ctx.fillStyle='#666'; ctx.fillRect(px+3,py+T-10,T-6,7); }
     if (grid[y][x]===BRICK){ ctx.fillStyle='#b3592a'; ctx.fillRect(px,py,T,T); ctx.strokeStyle='#7a3515'; ctx.lineWidth=2;
       for(let r=0;r<4;r++){ const yy=py+r*12; ctx.beginPath(); ctx.moveTo(px,yy); ctx.lineTo(px+T,yy); ctx.stroke(); const off=(r%2)*24; ctx.beginPath(); ctx.moveTo(px+off,yy); ctx.lineTo(px+off,yy+12); ctx.stroke(); }
+    }
+  }
+  // kampaň: portál a klíč
+  if (campaign){
+    ctx.font='30px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    if (campaign.exit.revealed){
+      const px=campaign.exit.cx*T, py=campaign.exit.cy*T;
+      const open=monsters.every(m=>!m.alive)&&campaign.hasKey;
+      ctx.fillStyle=open?'#2fd3a0':'#555'; ctx.fillRect(px+4,py+4,T-8,T-8);
+      ctx.save(); ctx.translate(px+T/2,py+T/2); ctx.rotate(open?performance.now()/400:0); ctx.fillText('🌀',0,2); ctx.restore();
+    }
+    if (campaign.key.revealed && !campaign.key.taken){
+      const px=campaign.key.cx*T, py=campaign.key.cy*T;
+      ctx.fillStyle='#ffe680'; ctx.fillRect(px+6,py+6,T-12,T-12); ctx.fillText('🔑',px+T/2,py+T/2+2);
     }
   }
   // power-upy
@@ -390,19 +555,17 @@ function draw(){
     ctx.fillStyle=`rgba(255,255,180,${0.6*a})`;
     ctx.fillRect(px+14,py+14,T-28,T-28);
   }
+  // příšery
+  for (const m of monsters) if (m.alive) drawMonsterSprite(ctx,m);
   // hráči
-  for (const p of players) if (p.alive) {
-    const bob=Math.sin(p.anim)*3;
-    ctx.fillStyle='rgba(0,0,0,.3)'; ctx.beginPath(); ctx.ellipse(p.x,p.y+T*0.38,T*0.3,T*0.12,0,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle=p.color; ctx.fillRect(p.x-12,p.y-6+bob,24,24); // tělo
-    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(p.x,p.y-14+bob,13,0,Math.PI*2); ctx.fill(); // hlava
-    ctx.fillStyle=p.color; ctx.beginPath(); ctx.arc(p.x,p.y-16+bob,13,Math.PI,0); ctx.fill(); // helma
-    ctx.fillStyle='#222'; ctx.fillRect(p.x-6+p.dir.x*3,p.y-12+bob,4,4); ctx.fillRect(p.x+2+p.dir.x*3,p.y-12+bob,4,4); // oči
-    ctx.fillStyle='#222'; ctx.fillRect(p.x-11,p.y+18+bob,8,5); ctx.fillRect(p.x+3,p.y+18-bob,8,5); // nohy
-  }
+  for (const p of players) if (p.alive) drawPlayerSprite(ctx,p.x,p.y,p.color,p.dir,p.anim);
   // HUD
   const names=['Hráč 1', mode===1?'Počítač':'Hráč 2'];
-  players.forEach((p,i)=>{
+  if (campaign){
+    const p=players[0], left=monsters.filter(m=>m.alive).length;
+    document.getElementById('hud1').textContent=`Level ${campaign.level}  ❤${campaign.lives}  ★ ${campaign.score}  💣${p.maxBombs} 🔥${p.fire} 👟${p.speed.toFixed(1)}${p.kick?' 🦶':''}`;
+    document.getElementById('hud2').textContent=`👾 ${left}  ${campaign.hasKey?'🔑 máš klíč':'🔑 ?'}  ${campaign.exit.revealed?(left===0&&campaign.hasKey?'🌀 portál otevřen!':'🌀 portál nalezen'):'🌀 ?'}`;
+  } else players.forEach((p,i)=>{
     document.getElementById('hud'+(i+1)).textContent=`${names[i]}: ${score[i]} ★  💣${p.maxBombs} 🔥${p.fire} 👟${p.speed.toFixed(1)}${p.kick?' 🦶':''}${p.alive?'':' ☠'}`;
   });
   // časomíra
@@ -410,6 +573,68 @@ function draw(){
   const t=Math.max(0,Math.ceil(roundTimer));
   ctx.fillText(`${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`, canvas.width/2, T/2);
 }
+
+function drawPlayerSprite(c,x,y,color,dir,anim){
+  const bob=Math.sin(anim)*3;
+  c.fillStyle='rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(x,y+T*0.38,T*0.3,T*0.12,0,0,Math.PI*2); c.fill();
+  c.fillStyle=color; c.fillRect(x-12,y-6+bob,24,24); // tělo
+  c.fillStyle='#fff'; c.beginPath(); c.arc(x,y-14+bob,13,0,Math.PI*2); c.fill(); // hlava
+  c.fillStyle=color; c.beginPath(); c.arc(x,y-16+bob,13,Math.PI,0); c.fill(); // helma
+  c.fillStyle='#222'; c.fillRect(x-6+dir.x*3,y-12+bob,4,4); c.fillRect(x+2+dir.x*3,y-12+bob,4,4); // oči
+  c.fillStyle='#222'; c.fillRect(x-11,y+18+bob,8,5); c.fillRect(x+3,y+18-bob,8,5); // nohy
+}
+function drawMonsterSprite(c,m){
+  const t=MONSTER_TYPES[m.type], bob=Math.sin(m.anim)*3;
+  c.globalAlpha = m.type==='ghost' ? 0.7 : 1;
+  c.fillStyle='rgba(0,0,0,.25)'; c.beginPath(); c.ellipse(m.x,m.y+T*0.36,T*0.28,T*0.1,0,0,Math.PI*2); c.fill();
+  c.fillStyle=t.color;
+  if (m.type==='ghost'){ c.beginPath(); c.arc(m.x,m.y-4+bob,16,Math.PI,0); c.lineTo(m.x+16,m.y+14+bob); for(let i=3;i>=-3;i-=2) c.lineTo(m.x+i*5.3,m.y+(i%2?8:14)+bob); c.lineTo(m.x-16,m.y+14+bob); c.fill(); }
+  else { c.beginPath(); c.arc(m.x,m.y+bob,17,0,Math.PI*2); c.fill(); }
+  c.fillStyle='#fff'; c.beginPath(); c.arc(m.x-6,m.y-4+bob,5,0,Math.PI*2); c.arc(m.x+6,m.y-4+bob,5,0,Math.PI*2); c.fill();
+  c.fillStyle='#111'; c.beginPath(); c.arc(m.x-6+m.dir[0]*2,m.y-4+bob,2.5,0,Math.PI*2); c.arc(m.x+6+m.dir[0]*2,m.y-4+bob,2.5,0,Math.PI*2); c.fill();
+  if (m.type==='hunter'){ c.fillStyle='#fff'; for(let i=-2;i<=2;i++){ c.beginPath(); c.moveTo(m.x+i*5-2,m.y+6+bob); c.lineTo(m.x+i*5+2,m.y+6+bob); c.lineTo(m.x+i*5,m.y+12+bob); c.fill(); } }
+  else { c.strokeStyle='#111'; c.lineWidth=2; c.beginPath(); c.arc(m.x,m.y+6+bob,5,0.2,Math.PI-0.2); c.stroke(); }
+  c.globalAlpha=1;
+}
+
+// ---------- Animované pozadí menu ----------
+const mc = document.getElementById('menuCanvas'), mctx = mc.getContext('2d');
+let menuActors = [];
+function menuLoop(now){
+  if (document.getElementById('menu').style.display==='none') return;
+  const t=now/1000;
+  if (!menuActors.length) {
+    for (let i=0;i<4;i++) menuActors.push({kind:'player',color:['#4fd3ff','#ff5c7a','#7cff5c','#ffd34d'][i],x:Math.random()*mc.width,y:T*1.5+i*T*2.5,dir:{x:i%2?-1:1,y:0},anim:Math.random()*6});
+    for (let i=0;i<3;i++) menuActors.push({kind:'monster',type:['balloon','ghost','hunter'][i],x:Math.random()*mc.width,y:T*2.5+i*T*3,dir:[1,0],anim:Math.random()*6,speed:1});
+  }
+  // dlaždice
+  for (let y=0;y<mc.height/T;y++) for (let x=0;x<mc.width/T;x++){
+    const px=x*T,py=y*T;
+    mctx.fillStyle=(x+y)%2?'#2e6e2e':'#337733'; mctx.fillRect(px,py,T,T);
+    if (x%2===0&&y%2===0){ mctx.fillStyle='#777'; mctx.fillRect(px,py,T,T); mctx.fillStyle='#999'; mctx.fillRect(px+3,py+3,T-6,T-6); }
+    else if ((x*7+y*13)%5===0){ mctx.fillStyle='#b3592a'; mctx.fillRect(px,py,T,T); mctx.strokeStyle='#7a3515'; mctx.lineWidth=2; for(let r=0;r<4;r++){ const yy=py+r*12; mctx.beginPath(); mctx.moveTo(px,yy); mctx.lineTo(px+T,yy); mctx.stroke(); } }
+  }
+  // pulzující bomby a plameny
+  for (let i=0;i<5;i++){
+    const bx=(i*3+1)*T+T/2, by=(i%2?3:7)*T+T/2, phase=(t*0.6+i*0.37)%1;
+    if (phase<0.75){ const pulse=1+0.12*Math.sin(t*12+i); mctx.fillStyle='#222'; mctx.beginPath(); mctx.arc(bx,by+3,T*0.34*pulse,0,Math.PI*2); mctx.fill(); mctx.fillStyle=Math.floor(t*10)%2?'#ff0':'#f60'; mctx.beginPath(); mctx.arc(bx+8,by-T*0.45,4,0,Math.PI*2); mctx.fill(); }
+    else { const a=1-(phase-0.75)/0.25; mctx.fillStyle=`rgba(255,${160+80*a|0},0,${a})`; mctx.fillRect(bx-T*2.5,by-16,T*5,32); mctx.fillRect(bx-16,by-T*1.5,32,T*3); }
+  }
+  // postavy
+  for (const a of menuActors){
+    a.anim+=0.15; a.x+=a.dir.x!==undefined?a.dir.x*1.2:a.dir[0]*1.2;
+    if (a.x>mc.width+30) a.x=-30; if (a.x<-30) a.x=mc.width+30;
+    if (a.kind==='player') drawPlayerSprite(mctx,a.x,a.y,a.color,a.dir,a.anim); else drawMonsterSprite(mctx,a);
+  }
+  requestAnimationFrame(menuLoop);
+}
+function showMenu(){ document.getElementById('menu').style.display='flex'; requestAnimationFrame(menuLoop); }
+window.addEventListener('keydown', e => {
+  if (document.getElementById('menu').style.display!=='none' && (e.code==='Enter'||e.code==='Space')) {
+    const f=document.activeElement; (f && f.tagName==='BUTTON' ? f : document.querySelector('#menu button')).click();
+  }
+});
+requestAnimationFrame(menuLoop);
 
 function loop(now){
   if (!mode) { loopRunning = false; return; }
