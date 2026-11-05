@@ -3,9 +3,10 @@
 const http = require('http');
 const { WebSocketServer } = require('ws');
 const engine = require('./engine');
+const Coop = require('../coop.js');
 
 const PORT = process.env.PORT || 8787;
-const MAX_PLAYERS = 3, ROUNDS_TO_WIN = 3, TICK_MS = 1000 / 30, BETWEEN_ROUNDS_MS = 4000;
+const MAX_PLAYERS = 3, ROUNDS_TO_WIN = 3, TICK_MS = 1000 / 30, BETWEEN_ROUNDS_MS = 4000, COOP_END_MS = 6000;
 
 const rooms = new Map();           // code → room
 const clients = new Map();         // ws → { room, id, name }
@@ -44,7 +45,7 @@ function leaveRoom(ws) {
   const room = c.room; room.members.delete(ws); clients.delete(ws);
   if (room.members.size === 0) { stopRoom(room); rooms.delete(room.code); return; }
   if (room.hostId === c.id) room.hostId = [...room.members.values()][0].id;
-  if (room.state) { const p = room.state.players.find(p => p.id === c.id); if (p) p.alive = false; }
+  if (room.state) { const p = room.state.players.find(p => p.id === c.id); if (p) { p.alive = false; p.left = true; p.respawn = 0; } }
   broadcast(room, lobbyInfo(room));
   broadcast(room, { t: 'info', msg: c.name + ' odešel.' });
 }
@@ -52,7 +53,35 @@ function stopRoom(room) { if (room.timer) clearInterval(room.timer); room.timer 
 
 function startMatch(room) {
   room.score = {}; for (const m of room.members.values()) room.score[m.id] = 0;
-  startRound(room);
+  if (room.settings.mode === 'coop') startCoopLevel(room, 0, null);
+  else startRound(room);
+}
+// ---- Společná výprava: levely, úkoly, příšery a boss běží v coop.js (stejný kód jako lokálně v prohlížeči) ----
+function startCoopLevel(room, level, carry) {
+  room.phase = 'playing';
+  const infos = [...room.members.values()].map(m => ({ id: m.id, name: m.name }));
+  room.state = Coop.createLevel(level, infos, room.settings, carry);
+  for (const m of room.members.values()) { m.input = { dx: 0, dy: 0 }; m.bomb = false; }
+  broadcast(room, { t: 'round_start', coop: true, level, score: room.score, players: infos.map(i => ({ ...i, color: engine.COLORS[i.id] })) });
+  room.lastTick = Date.now();
+  stopRoom(room);
+  room.timer = setInterval(() => coopTick(room), TICK_MS);
+}
+function coopTick(room) {
+  const now = Date.now(); const dt = Math.min(0.1, (now - room.lastTick) / 1000); room.lastTick = now;
+  const inputs = {};
+  for (const m of room.members.values()) { inputs[m.id] = { dx: m.input.dx, dy: m.input.dy, bomb: m.bomb }; m.bomb = false; }
+  const s = room.state;
+  const result = Coop.step(s, inputs, dt);
+  const rtt = {}; for (const m of room.members.values()) if (m.rtt != null) rtt[m.id] = m.rtt;
+  broadcast(room, { t: 'state', s: Coop.snapshot(s), rtt });
+  if (!result) return;
+  stopRoom(room);
+  if (result.done === 'level') { startCoopLevel(room, s.level + 1, Coop.carryOf(s)); return; }
+  room.phase = 'between';
+  const names = [...room.members.values()].map(m => m.name);
+  broadcast(room, { t: 'coop_end', won: result.done === 'won', level: s.level + 1, score: s.score, names });
+  room.pending = setTimeout(() => { room.pending = null; room.phase = 'lobby'; room.state = null; broadcast(room, lobbyInfo(room)); }, COOP_END_MS);
 }
 function startRound(room) {
   room.phase = 'playing';
@@ -88,12 +117,17 @@ function tick(room) {
 }
 
 const fs = require('fs'), path = require('path'), os = require('os'), crypto = require('crypto');
-const GAME_HTML = path.join(__dirname, '..', 'index.html');
-// Verze klienta = otisk souboru index.html na disku. Server ji vloží do stránky a pošle při připojení;
+const ROOT = path.join(__dirname, '..');
+const GAME_HTML = path.join(ROOT, 'index.html');
+// Skripty, které stránka načítá (sdílená logika) – servírují se z disku
+const STATIC_JS = { '/coop.js': path.join(ROOT, 'coop.js'), '/server/engine.js': path.join(__dirname, 'engine.js') };
+// Verze klienta = otisk index.html + sdílených skriptů na disku. Server ji vloží do stránky a pošle při připojení;
 // starý otevřený klient se při neshodě sám obnoví.
 function readGame() {
   const html = fs.readFileSync(GAME_HTML, 'utf8');
-  const version = crypto.createHash('sha1').update(html).digest('hex').slice(0, 10);
+  const h = crypto.createHash('sha1').update(html);
+  for (const f of Object.values(STATIC_JS)) h.update(fs.readFileSync(f, 'utf8'));
+  const version = h.digest('hex').slice(0, 10);
   return { html: html.replace('__CLIENT_VERSION__', version), version };
 }
 function currentVersion() { try { return readGame().version; } catch { return null; } }
@@ -103,6 +137,10 @@ const server = http.createServer((req, res) => {
   else if (req.url === '/' || req.url.startsWith('/index.html') || req.url.startsWith('/?')) {
     try { const g = readGame(); res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' }); res.end(g.html); }
     catch (err) { res.writeHead(500); res.end('index.html not found'); }
+  }
+  else if (STATIC_JS[req.url.split('?')[0]]) {
+    try { res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-cache' }); res.end(fs.readFileSync(STATIC_JS[req.url.split('?')[0]])); }
+    catch (err) { res.writeHead(500); res.end('script not found'); }
   }
   else { res.writeHead(404); res.end(); }
 });
