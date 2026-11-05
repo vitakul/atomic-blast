@@ -1,19 +1,25 @@
-// Čistá herní logika arény (bez DOM) – běží na serveru.
+// Čistá herní logika arény (bez DOM) – běží na serveru i v prohlížeči (kooperace ji načítá přes <script>).
 // Odpovídá lokální aréně v index.html, ale ve stavovém objektu místo globálů.
+// Krok je rozdělený na části (hráči → bomby → oheň → sběr), které si půjčuje i coop.js.
+(function (root, factory) {
+  if (typeof module !== 'undefined' && module.exports) module.exports = factory();
+  else root.Engine = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
 'use strict';
 
 const COLS = 15, ROWS = 13, T = 48;
-const EMPTY = 0, WALL = 1, BRICK = 2;
+const EMPTY = 0, WALL = 1, BRICK = 2;   // hodnoty >= 3 jsou „speciální pevná políčka“ (kooperace: hnízdo)
 const BOMB_TIME = 2.5, FIRE_TIME = 0.5, ROUND_TIME = 120, SUDDEN_DEATH_AT = 30;
 const STARTS = [[1, 1], [COLS - 2, ROWS - 2], [COLS - 2, 1], [1, ROWS - 2]];
 const COLORS = ['#4fd3ff', '#ff5c7a', '#7cff5c', '#ffd34d'];
 const R = T * 0.35;
 
-function makeGrid() {
+function makeGrid(density) {
+  const d = density == null ? 0.75 : density;
   const g = [];
   for (let y = 0; y < ROWS; y++) { g.push([]); for (let x = 0; x < COLS; x++) {
     if (x === 0 || y === 0 || x === COLS - 1 || y === ROWS - 1 || (x % 2 === 0 && y % 2 === 0)) g[y].push(WALL);
-    else g[y].push(Math.random() < 0.75 ? BRICK : EMPTY);
+    else g[y].push(Math.random() < d ? BRICK : EMPTY);
   } }
   for (const [cx, cy] of STARTS) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
     const x = cx + dx, y = cy + dy; if (g[y] && g[y][x] === BRICK && (dx === 0 || dy === 0)) g[y][x] = EMPTY;
@@ -22,7 +28,7 @@ function makeGrid() {
 }
 
 // Nastavení místnosti (vybírá zakladatel v lobby)
-const DEFAULT_SETTINGS = { powerups: 'normal', roundTime: 120, roundsToWin: 3, suddenDeath: true };
+const DEFAULT_SETTINGS = { mode: 'arena', powerups: 'normal', roundTime: 120, roundsToWin: 3, suddenDeath: true, difficulty: 'normal', friendlyFire: false };
 const POWERUP_PRESETS = {
   low:    { dropRate: 0.35, startBombs: 1, startFire: 2 },
   normal: { dropRate: 0.65, startBombs: 1, startFire: 2 },
@@ -30,22 +36,26 @@ const POWERUP_PRESETS = {
 };
 function normalizeSettings(s) {
   const o = { ...DEFAULT_SETTINGS, ...(s || {}) };
+  if (!['arena', 'coop'].includes(o.mode)) o.mode = 'arena';
   if (!POWERUP_PRESETS[o.powerups]) o.powerups = 'normal';
   if (![60, 120, 180].includes(+o.roundTime)) o.roundTime = 120; else o.roundTime = +o.roundTime;
   if (![1, 3, 5].includes(+o.roundsToWin)) o.roundsToWin = 3; else o.roundsToWin = +o.roundsToWin;
   o.suddenDeath = !!o.suddenDeath;
+  if (!['easy', 'normal', 'hard'].includes(o.difficulty)) o.difficulty = 'normal';
+  o.friendlyFire = !!o.friendlyFire;
   return o;
+}
+
+function makePlayer(info, sx, sy, startBombs, startFire) {
+  return { id: info.id, name: info.name, x: sx * T + T / 2, y: sy * T + T / 2, color: COLORS[info.id],
+    alive: true, maxBombs: startBombs, fire: startFire, speed: 2.6, kick: false, dir: { x: 0, y: 1 }, anim: 0 };
 }
 
 function createRound(playerInfos, settings) {
   // playerInfos: [{id, name}] – id = slot 0..3
   const opts = normalizeSettings(settings);
   const preset = POWERUP_PRESETS[opts.powerups];
-  const players = playerInfos.map((info, i) => {
-    const [sx, sy] = STARTS[info.id];
-    return { id: info.id, name: info.name, x: sx * T + T / 2, y: sy * T + T / 2, color: COLORS[info.id],
-      alive: true, maxBombs: preset.startBombs, fire: preset.startFire, speed: 2.6, kick: false, dir: { x: 0, y: 1 }, anim: 0 };
-  });
+  const players = playerInfos.map(info => { const [sx, sy] = STARTS[info.id]; return makePlayer(info, sx, sy, preset.startBombs, preset.startFire); });
   return { grid: makeGrid(), bombs: [], fires: [], powerups: [], players, roundTimer: opts.roundTime,
     suddenDeath: null, roundOver: false, events: [], opts, dropRate: preset.dropRate };
 }
@@ -96,8 +106,8 @@ function placeBomb(s, p) {
   s.bombs.push({ cx, cy, owner: p.id, timer: BOMB_TIME, fire: p.fire, passable, moving: null, mx: cx * T + T / 2, my: cy * T + T / 2 });
   s.events.push('bomb');
 }
-function dropPowerup(s, x, y) {
-  if (Math.random() >= (s.dropRate == null ? 0.65 : s.dropRate)) return;
+function dropPowerup(s, x, y, force) {
+  if (!force && Math.random() >= (s.dropRate == null ? 0.65 : s.dropRate)) return;
   const r = Math.random();
   const kind = r < 0.40 ? 'bomb' : r < 0.72 ? 'fire' : r < 0.90 ? 'speed' : 'kick';
   s.powerups.push({ cx: x, cy: y, kind, shield: FIRE_TIME + 0.05 });   // odolný vůči plameni, který ho odkryl
@@ -105,13 +115,20 @@ function dropPowerup(s, x, y) {
 function explode(s, b) {
   s.bombs.splice(s.bombs.indexOf(b), 1);
   s.events.push('explosion');
-  const add = (cx, cy, kind) => s.fires.push({ cx, cy, timer: FIRE_TIME, kind });
+  const add = (cx, cy, kind) => s.fires.push({ cx, cy, timer: FIRE_TIME, kind, owner: b.owner });
   add(b.cx, b.cy, 'c');
   for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
     for (let i = 1; i <= b.fire; i++) {
       const x = b.cx + dx * i, y = b.cy + dy * i;
       if (x < 0 || y < 0 || x >= COLS || y >= ROWS || s.grid[y][x] === WALL) break;
-      if (s.grid[y][x] === BRICK) { s.grid[y][x] = EMPTY; add(x, y, dx ? 'h' : 'v'); dropPowerup(s, x, y); break; }
+      const v = s.grid[y][x];
+      if (v === BRICK) {
+        s.grid[y][x] = EMPTY; add(x, y, dx ? 'h' : 'v');
+        // háček (kooperace): pod cihlou může být klíč apod. – pak nepadá power-up
+        if (!(s.onBrick && s.onBrick(x, y))) dropPowerup(s, x, y);
+        break;
+      }
+      if (v >= 3) { add(x, y, dx ? 'h' : 'v'); if (s.onSpecial) s.onSpecial(x, y, b); break; }   // speciální pevné políčko (hnízdo)
       add(x, y, dx ? 'h' : 'v');
       const other = bombAt(s, x, y); if (other) other.timer = 0;
     }
@@ -135,26 +152,16 @@ function spiralCells(s) {
   return out.filter(([x, y]) => s.grid[y][x] !== WALL);
 }
 
-// inputs: { [playerId]: { dx, dy, bomb } }  → vrací null, nebo { winner: player|null } při konci kola
-function step(s, inputs, dt) {
-  if (s.roundOver) return null;
-  s.events = [];
-  s.roundTimer -= dt;
-  if (s.roundTimer <= SUDDEN_DEATH_AT && (!s.opts || s.opts.suddenDeath)) {
-    if (!s.suddenDeath) s.suddenDeath = { cells: spiralCells(s), i: 0, t: 0 };
-    s.suddenDeath.t -= dt;
-    if (s.suddenDeath.t <= 0 && s.suddenDeath.i < s.suddenDeath.cells.length) {
-      const [x, y] = s.suddenDeath.cells[s.suddenDeath.i++]; s.suddenDeath.t = 0.25;
-      s.grid[y][x] = WALL; s.powerups = s.powerups.filter(u => !(u.cx === x && u.cy === y));
-      const b = bombAt(s, x, y); if (b) s.bombs.splice(s.bombs.indexOf(b), 1);
-      for (const p of s.players) if (p.alive && cell(p.x) === x && cell(p.y) === y) killPlayer(s, p);
-    }
-  }
+// ---- Dílčí kroky (sdílí je aréna i kooperace) ----
+// inputs: { [playerId]: { dx, dy, bomb } }
+function stepPlayers(s, inputs, dt) {
   for (const p of s.players) {
     const inp = inputs[p.id] || { dx: 0, dy: 0, bomb: false };
     movePlayer(s, p, Math.sign(inp.dx || 0), Math.sign(inp.dy || 0), dt);
     if (inp.bomb) placeBomb(s, p);
   }
+}
+function stepBombs(s, dt) {
   for (const b of [...s.bombs]) {
     b.timer -= dt;
     b.passable = b.passable.filter(id => { const p = s.players.find(q => q.id === id); if (!p) return false;
@@ -170,13 +177,18 @@ function step(s, inputs, dt) {
     }
     if (b.timer <= 0 && s.bombs.includes(b)) explode(s, b);
   }
+}
+// canKill(f, p) – volitelný predikát (kooperace: plamen spoluhráče nezabíjí)
+function stepFires(s, dt, canKill) {
   for (const f of s.fires) f.timer -= dt;
   s.fires = s.fires.filter(f => f.timer > 0);
   for (const u of s.powerups) u.shield = (u.shield || 0) - dt;
   for (const f of s.fires) {
     s.powerups = s.powerups.filter(u => u.shield > 0 || !(u.cx === f.cx && u.cy === f.cy));
-    for (const p of s.players) if (p.alive && fireHits(f, p)) killPlayer(s, p);
+    for (const p of s.players) if (p.alive && fireHits(f, p) && (!canKill || canKill(f, p))) killPlayer(s, p);
   }
+}
+function stepPickups(s) {
   for (const p of s.players) if (p.alive) {
     const i = s.powerups.findIndex(u => u.cx === cell(p.x) && u.cy === cell(p.y));
     if (i >= 0) { const u = s.powerups.splice(i, 1)[0]; s.events.push('powerup');
@@ -186,6 +198,27 @@ function step(s, inputs, dt) {
       if (u.kind === 'kick') p.kick = true;
     }
   }
+}
+
+// Aréna: vrací null, nebo { winner: player|null } při konci kola
+function step(s, inputs, dt) {
+  if (s.roundOver) return null;
+  s.events = [];
+  s.roundTimer -= dt;
+  if (s.roundTimer <= SUDDEN_DEATH_AT && (!s.opts || s.opts.suddenDeath)) {
+    if (!s.suddenDeath) s.suddenDeath = { cells: spiralCells(s), i: 0, t: 0 };
+    s.suddenDeath.t -= dt;
+    if (s.suddenDeath.t <= 0 && s.suddenDeath.i < s.suddenDeath.cells.length) {
+      const [x, y] = s.suddenDeath.cells[s.suddenDeath.i++]; s.suddenDeath.t = 0.25;
+      s.grid[y][x] = WALL; s.powerups = s.powerups.filter(u => !(u.cx === x && u.cy === y));
+      const b = bombAt(s, x, y); if (b) s.bombs.splice(s.bombs.indexOf(b), 1);
+      for (const p of s.players) if (p.alive && cell(p.x) === x && cell(p.y) === y) killPlayer(s, p);
+    }
+  }
+  stepPlayers(s, inputs, dt);
+  stepBombs(s, dt);
+  stepFires(s, dt, null);
+  stepPickups(s);
   const alive = s.players.filter(p => p.alive);
   if (alive.length <= 1 || s.roundTimer <= 0) {
     s.roundOver = true;
@@ -208,4 +241,7 @@ function snapshot(s) {
   };
 }
 
-module.exports = { COLS, ROWS, T, createRound, step, snapshot, COLORS, STARTS, DEFAULT_SETTINGS, normalizeSettings };
+return { COLS, ROWS, T, EMPTY, WALL, BRICK, BOMB_TIME, FIRE_TIME, R, createRound, step, snapshot, COLORS, STARTS, DEFAULT_SETTINGS, normalizeSettings,
+  makeGrid, makePlayer, cell, bombAt, solidAt, movePlayer, placeBomb, dropPowerup, explode, killPlayer, fireHits,
+  stepPlayers, stepBombs, stepFires, stepPickups, POWERUP_PRESETS };
+});
