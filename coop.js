@@ -386,6 +386,17 @@ function step(s, inputs, dt) {
   if (!anyoneUp) { s.done = 'lost'; s.outro = OUTRO_TIME; s.events.push('gameover'); }
   return null;
 }
+// Testovací zkratka (server ji pustí jen s AB_DEBUG=1): splní úkol levelu a postaví hráče do portálu / dorazí bosse
+function debugFinishLevel(s) {
+  for (const m of s.monsters) m.alive = false;
+  for (const k of s.keys) { k.revealed = true; k.taken = true; }
+  if (s.switches.length) s.switchesDone = true;
+  if (s.nest) { s.nest.hp = 0; s.grid[s.nest.cy][s.nest.cx] = EMPTY; }
+  if (s.boss && s.boss.alive) { s.boss.hp = 1; s.boss.hitCd = 0; s.fires.push({ cx: s.boss.cx, cy: s.boss.cy, timer: 0.3, kind: 'c', owner: null }); }
+  const p = s.players.find(p => p.alive) || s.players[0];
+  if (s.portal) { p.alive = true; p.x = s.portal.cx * T + T / 2; p.y = s.portal.cy * T + T / 2; }
+  s.intro = 0;
+}
 // statistiky k přenesení do dalšího levelu
 function carryOf(s) {
   const players = {}; for (const p of s.players) players[p.id] = { maxBombs: p.maxBombs, fire: p.fire, speed: p.speed, kick: p.kick };
@@ -436,5 +447,5 @@ function viewFromSnapshot(c) {
   };
 }
 
-return { LEVELS, DIFFICULTIES, MONSTER_TYPES, NEST, INTRO_TIME, OUTRO_TIME, RESPAWN_TIME, createLevel, step, carryOf, view, snapshot, viewFromSnapshot, objectiveText };
+return { LEVELS, DIFFICULTIES, MONSTER_TYPES, NEST, INTRO_TIME, OUTRO_TIME, RESPAWN_TIME, createLevel, step, carryOf, view, snapshot, viewFromSnapshot, objectiveText, debugFinishLevel };
 });
