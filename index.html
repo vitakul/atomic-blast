@@ -1025,7 +1025,7 @@ const SETTING_ROWS = [
 ];
 function settingsHtml(rows, s, enabled, fn){
   return rows.map(r => `<div class="srow"><div class="slabel">${r.label}</div><div class="sopts">` +
-    r.opts.map(([v,l]) => `<button ${String(s[r.key])===String(v)?'class="active"':''} ${enabled?'':'disabled'} onclick="${fn}('${r.key}',${JSON.stringify(v)})">${l}</button>`).join('') + '</div></div>').join('');
+    r.opts.map(([v,l]) => `<button ${String(s[r.key])===String(v)?'class="active"':''} ${enabled?'':'disabled'} onclick="${fn}('${r.key}',${typeof v==='string' ? `'${v}'` : v})">${l}</button>`).join('') + '</div></div>').join('');
 }
 function renderSettings(s, isHost){
   const m = s.mode || 'arena';
