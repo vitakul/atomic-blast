@@ -190,8 +190,12 @@ setInterval(() => { for (const ws of wss.clients) { if (!ws.isAlive) { ws.termin
 server.listen(PORT, '0.0.0.0', () => {
   console.log('\n💣  ATOMIC BLAST – server po Wi-Fi běží!\n');
   console.log('   Na tomto počítači otevři:   http://localhost:' + PORT);
+  // Stálá adresa přes jméno počítače (mDNS/Bonjour) – nemění se s IP adresou, dá se uložit do záložek.
+  const host = os.hostname().replace(/\.local$/i, '').toLowerCase();
+  console.log('   Stálá adresa pro ostatní (uložte si do záložek):');
+  console.log('      http://' + host + '.local:' + PORT);
   const lan = lanAddresses();
-  if (lan.length) { console.log('   Ostatní ve stejné Wi-Fi otevřou:'); for (const a of lan) console.log('      http://' + a.address + ':' + PORT + '   (' + a.name + ')'); }
+  if (lan.length) { console.log('   Záložní adresa podle IP (může se časem změnit):'); for (const a of lan) console.log('      http://' + a.address + ':' + PORT + '   (' + a.name + ')'); }
   else console.log('   (Nenašel jsem adresu v lokální síti – jsi připojený k Wi-Fi?)');
   console.log('\n   Ukončit: Ctrl+C\n');
 });
