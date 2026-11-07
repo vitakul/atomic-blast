@@ -40,6 +40,19 @@ Pravidla:
 - Příšery: balónek, duch (prochází cihlami), lovec (pronásleduje), **střelec** (střílí ohnivou kouli po řádku,
   když tě vidí) a **obrněnec** (pomalý, 3 zásahy). Boss se pohybuje po mapě, boří cihly, volá pomocníky
   a při polovině životů zrychlí a začne střílet do čtyř stran. Zraňuje ho jen oheň z bomb.
+- Příšery se schopnostmi přibývají s levely; v úvodu levelu se nové příšery představí s popisem:
+
+  | Příšera | Od levelu | Co umí |
+  |---|---|---|
+  | Žabák | 1 Les | občas skočí o dvě políčka – přes cihlu, bombu i oheň; ve skoku ho oheň nechytí |
+  | Sliz | 1 Les | po zásahu se rozdělí na dva malé, rychlejší slizy |
+  | Krtek | 2 Jeskyně | zahrabe se (nezranitelný, leze pod cihlami) a vyleze poblíž hráče; chvíli bliká a ještě nezraňuje |
+  | Pavouk | 2 Jeskyně | nechává pavučiny, ve kterých hráč jde pomalu; oheň je spálí, samy zmizí po chvíli |
+  | Sněhulák | 3 Ledová pevnost | hází sněhové koule, které hráče na ~2 s zmrazí; spoluhráč ho rozmrazí dotykem (2 zásahy) |
+  | Hltoun | 4 Lávové doly | jde po bombách a power-upech a polyká je; po třetí bombě praskne a vybuchne (zraní každého) |
+  | Chameleon | 5 Hrad | střídavě se zneviditelní a v neviditelnosti se plíží k hráči |
+
+  Hnízdo občas vylíhne i sliz, boss volá na pomoc i žabáky a slizy.
 - Skóre je společné; power-upy se přenášejí do dalšího levelu (po smrti o jeden stupeň níž).
 
 Po Wi-Fi se výprava hraje stejně: zakladatel v lobby přepne **REŽIM** na VÝPRAVA, zvolí obtížnost

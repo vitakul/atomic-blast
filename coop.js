@@ -23,27 +23,37 @@ const DIFFICULTIES = {
 
 // ---------- Příšery ----------
 // passBricks = prochází cihlami, chase = pronásleduje nejbližšího hráče, hp = kolik zásahů ohněm vydrží
+// name/desc = co se ukáže v úvodu levelu, kde se příšera objeví poprvé
 const MONSTER_TYPES = {
-  balloon: { speed: 1.3, color: '#ff9ad5', passBricks: false, chase: false, points: 100, hp: 1 },
-  ghost:   { speed: 1.6, color: '#b0c4ff', passBricks: true,  chase: false, points: 200, hp: 1 },
-  hunter:  { speed: 2.2, color: '#ff4d4d', passBricks: false, chase: true,  points: 400, hp: 1 },
-  shooter: { speed: 0.9, color: '#ffa640', passBricks: false, chase: false, points: 500, hp: 1, shoots: true },
-  tank:    { speed: 0.8, color: '#7fbf7f', passBricks: false, chase: true,  points: 800, hp: 3 },
+  balloon:   { speed: 1.3, color: '#ff9ad5', passBricks: false, chase: false, points: 100, hp: 1, name: 'Balónek', desc: 'bloudí sem a tam' },
+  ghost:     { speed: 1.6, color: '#b0c4ff', passBricks: true,  chase: false, points: 200, hp: 1, name: 'Duch', desc: 'prochází cihlami' },
+  hunter:    { speed: 2.2, color: '#ff4d4d', passBricks: false, chase: true,  points: 400, hp: 1, name: 'Lovec', desc: 'jde po vás' },
+  shooter:   { speed: 0.9, color: '#ffa640', passBricks: false, chase: false, points: 500, hp: 1, shoots: 'fire', name: 'Střelec', desc: 'střílí ohnivé koule' },
+  tank:      { speed: 0.8, color: '#7fbf7f', passBricks: false, chase: true,  points: 800, hp: 3, name: 'Obrněnec', desc: 'vydrží 3 zásahy' },
+  // nové příšery se schopnostmi
+  frog:      { speed: 1.4, color: '#5ad65a', passBricks: false, chase: false, points: 300, hp: 1, jumps: true, name: 'Žabák', desc: 'skáče přes cihly i bomby, ve skoku ho oheň nechytí' },
+  slime:     { speed: 1.1, color: '#5ee0c0', passBricks: false, chase: false, points: 250, hp: 1, splits: true, name: 'Sliz', desc: 'po zásahu se rozdělí na dva malé' },
+  mole:      { speed: 1.3, color: '#b08058', passBricks: false, chase: false, points: 450, hp: 1, burrows: true, name: 'Krtek', desc: 'zahrabe se a vyleze u vás' },
+  spider:    { speed: 1.5, color: '#9a7ae0', passBricks: false, chase: false, points: 350, hp: 1, webs: true, name: 'Pavouk', desc: 'tká pavučiny, které zpomalují (oheň je spálí)' },
+  snowman:   { speed: 0.8, color: '#eef6ff', passBricks: false, chase: false, points: 500, hp: 2, shoots: 'ice', name: 'Sněhulák', desc: 'koulí zmrazí – kamarád vás rozmrazí dotykem' },
+  glutton:   { speed: 1.4, color: '#f0b030', passBricks: false, chase: false, points: 600, hp: 1, eats: true, name: 'Hltoun', desc: 'spolyká bomby; po třetí praskne a vybuchne' },
+  chameleon: { speed: 1.5, color: '#c070ff', passBricks: false, chase: false, points: 600, hp: 1, hides: true, name: 'Chameleon', desc: 'zneviditelní se a plíží se k vám' },
 };
+const WEB_LIFE = 9, WEB_SLOW = 0.45, FREEZE_TIME = 2.2, GLUTTON_POP = 3;
 
 // ---------- Levely ----------
 // layout: random | cave | rooms | corridors | open ; objective: seznam částí úkolu
 const LEVELS = [
   { name: 'LES', sub: 'Zahřívací kolo', theme: { floorA: '#3a8a3a', floorB: '#3f943f', wall: '#5a7a3a', wallLight: '#7aa04a', wallDark: '#3e5a28', brick: '#8a5a2a', brickLine: '#5a3815', bg: '#0b1a0b' },
-    layout: 'random', density: 0.7, objective: [{ kind: 'kill' }], monsters: ['balloon', 'balloon', 'balloon'] },
+    layout: 'random', density: 0.7, objective: [{ kind: 'kill' }], monsters: ['balloon', 'balloon', 'frog', 'slime'] },
   { name: 'JESKYNĚ', sub: 'Ztracené klíče', theme: { floorA: '#4a4652', floorB: '#504c58', wall: '#2a2830', wallLight: '#3a3842', wallDark: '#1a1820', brick: '#7a5a48', brickLine: '#4a3528', bg: '#0b0b10' },
-    layout: 'cave', density: 0.8, objective: [{ kind: 'keys', n: 3 }], monsters: ['balloon', 'balloon', 'ghost', 'ghost'] },
+    layout: 'cave', density: 0.8, objective: [{ kind: 'keys', n: 3 }], monsters: ['balloon', 'ghost', 'ghost', 'mole', 'spider'] },
   { name: 'LEDOVÁ PEVNOST', sub: 'Dva spínače', theme: { floorA: '#a8dcf0', floorB: '#b8e6f8', wall: '#4a80b0', wallLight: '#78b0e0', wallDark: '#2a5080', brick: '#d8ecf8', brickLine: '#88b8d8', bg: '#081020' },
-    layout: 'rooms', density: 0.55, objective: [{ kind: 'switches' }], monsters: ['ghost', 'ghost', 'hunter', 'shooter'] },
+    layout: 'rooms', density: 0.55, objective: [{ kind: 'switches' }], monsters: ['ghost', 'hunter', 'shooter', 'snowman', 'snowman'] },
   { name: 'LÁVOVÉ DOLY', sub: 'Hnízdo', theme: { floorA: '#3a1a10', floorB: '#421c12', wall: '#201008', wallLight: '#4a2818', wallDark: '#100804', brick: '#a84020', brickLine: '#ff8030', bg: '#180804' },
-    layout: 'corridors', density: 0.6, objective: [{ kind: 'nest' }, { kind: 'kill' }], monsters: ['shooter', 'shooter', 'hunter', 'balloon'] },
+    layout: 'corridors', density: 0.6, objective: [{ kind: 'nest' }, { kind: 'kill' }], monsters: ['shooter', 'shooter', 'hunter', 'glutton', 'frog'] },
   { name: 'HRAD', sub: 'Poslední stráž', theme: { floorA: '#4a3c5a', floorB: '#524462', wall: '#6a6a7a', wallLight: '#8a8a9a', wallDark: '#3a3a48', brick: '#8a7060', brickLine: '#504038', bg: '#0e0a14' },
-    layout: 'rooms', density: 0.75, objective: [{ kind: 'keys', n: 2 }, { kind: 'kill' }], monsters: ['tank', 'tank', 'hunter', 'hunter', 'ghost', 'shooter'] },
+    layout: 'rooms', density: 0.75, objective: [{ kind: 'keys', n: 2 }, { kind: 'kill' }], monsters: ['tank', 'tank', 'hunter', 'chameleon', 'chameleon', 'spider', 'shooter'] },
   { name: 'BOSSOVA KOMNATA', sub: 'Velký Bombus', theme: { floorA: '#2a1a2a', floorB: '#301e30', wall: '#5a2040', wallLight: '#8a3060', wallDark: '#300818', brick: '#6a4a5a', brickLine: '#3a2030', bg: '#100408' },
     layout: 'open', density: 0.3, objective: [{ kind: 'boss' }], monsters: [], boss: true },
 ];
@@ -108,7 +118,7 @@ function createLevel(levelIndex, playerInfos, opts, carry) {
     grid: buildGrid(L), bombs: [], fires: [], powerups: [], players: [], monsters: [], projectiles: [], events: [],
     lives: carry && carry.lives != null ? carry.lives : diff.lives, score: carry && carry.score || 0, maxLives: diff.lives,
     intro: INTRO_TIME, outro: 0, done: null, time: 0, dropRate: 0.5, diff,
-    keys: [], switches: [], nest: null, portal: null, boss: null,
+    keys: [], switches: [], nest: null, portal: null, boss: null, webs: [],
   };
   // hráči – startují spolu v rohu; statistiky (bomby, plamen…) se přenášejí z minulého levelu
   playerInfos.forEach((info, i) => {
@@ -116,7 +126,7 @@ function createLevel(levelIndex, playerInfos, opts, carry) {
     const p = E.makePlayer(info, sx, sy, 1, 2);
     const old = carry && carry.players && carry.players[info.id];
     if (old) { p.maxBombs = old.maxBombs; p.fire = old.fire; p.speed = old.speed; p.kick = old.kick; }
-    p.respawn = 0; p.grace = GRACE_TIME; p.deaths = 0; p.left = false;
+    p.respawn = 0; p.grace = GRACE_TIME; p.deaths = 0; p.left = false; p.frozen = 0;
     s.players.push(p);
   });
   const g = s.grid;
@@ -157,6 +167,8 @@ function createLevel(levelIndex, playerInfos, opts, carry) {
     const [x, y] = pickRandom(empties);
     s.monsters.push(makeMonster(type, x, y, diff.speed * (1 + levelIndex * 0.05)));
   }
+  s.newcomers = newcomers(levelIndex, roster);
+  s.intro += s.newcomers.length * 1.3;   // ať je čas si přečíst, co nové příšery umí
   if (L.boss) {
     const [bx, by] = [COLS - 3, ROWS - 3];
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (!isPillar(bx + dx, by + dy)) g[by + dy][bx + dx] = EMPTY;
@@ -170,7 +182,14 @@ function createLevel(levelIndex, playerInfos, opts, carry) {
 }
 function makeMonster(type, x, y, speedMul) {
   const t = MONSTER_TYPES[type];
-  return { type, cx: x, cy: y, x: x * T + T / 2, y: y * T + T / 2, dir: [0, 0], speed: t.speed * speedMul, think: 0, anim: Math.random() * 6, alive: true, hp: t.hp, hitCd: 0, shootT: 2 + Math.random() * 2, path: null, grace: 0 };
+  return { type, cx: x, cy: y, x: x * T + T / 2, y: y * T + T / 2, dir: [0, 0], speed: t.speed * speedMul, think: 0, anim: Math.random() * 6, alive: true, hp: t.hp, hitCd: 0, shootT: 2 + Math.random() * 2, path: null, grace: 0,
+    // schopnosti: skok (žabák), zahrabání (krtek), pavučiny, polykání bomb, neviditelnost, malý sliz
+    jump: null, z: 0, jumpT: 1.5 + Math.random() * 2, under: false, burrowT: 3 + Math.random() * 2, webT: 1, eaten: 0, hidden: false, hideT: 2 + Math.random() * 2, small: false };
+}
+// příšery, které se v tomto levelu objeví poprvé (ukážou se v úvodu levelu s popisem schopnosti)
+function newcomers(levelIndex, roster) {
+  const seen = new Set(); for (let i = 0; i < levelIndex; i++) for (const t of LEVELS[i].monsters) seen.add(t);
+  return [...new Set(roster || LEVELS[levelIndex].monsters)].filter(t => !seen.has(t) && MONSTER_TYPES[t].desc);
 }
 
 // ---------- Úkol ----------
@@ -193,8 +212,9 @@ function monsterCanEnter(s, m, x, y) {
   if (y < 0 || y >= ROWS || x < 0 || x >= COLS) return false;
   const v = s.grid[y][x];
   if (v === WALL || v >= NEST) return false;
-  if (v === BRICK && !MONSTER_TYPES[m.type].passBricks) return false;
-  if (E.bombAt(s, x, y)) return false;
+  const t = MONSTER_TYPES[m.type];
+  if (v === BRICK && !t.passBricks && !m.under) return false;
+  if (E.bombAt(s, x, y) && !t.eats && !m.under) return false;   // hltoun do bomby vleze (a sní ji), krtek ji podleze
   return true;
 }
 function nearestPlayer(s, x, y) {
@@ -211,65 +231,147 @@ function bfsPath(s, sx, sy, goal, pass) {
   return null;
 }
 function hurtPlayer(s, p) { if (p.alive && p.grace <= 0) E.killPlayer(s, p); }
+function nearestThing(list, m, maxDist) {
+  let best = null, bd = maxDist + 1;
+  for (const o of list) { const d = Math.abs(o.cx - m.cx) + Math.abs(o.cy - m.cy); if (d < bd) { bd = d; best = o; } }
+  return best;
+}
+const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 function stepMonsters(s, dt) {
-  for (const m of s.monsters) {
+  for (const m of s.monsters.slice()) {
     if (!m.alive) continue;
-    m.anim += dt * 6; m.hitCd -= dt; m.grace -= dt;
+    m.anim += dt * 6; m.hitCd -= dt; m.grace -= dt; m.jumpT -= dt; m.webT -= dt; m.burrowT -= dt;
     const t = MONSTER_TYPES[m.type];
+    // žabák ve vzduchu: letí po oblouku na cílové políčko, nic jiného nedělá (ani nezraňuje)
+    if (m.jump) {
+      const j = m.jump; j.t += dt; const k = Math.min(1, j.t / j.dur);
+      m.x = j.x0 + (m.cx * T + T / 2 - j.x0) * k; m.y = j.y0 + (m.cy * T + T / 2 - j.y0) * k; m.z = Math.sin(k * Math.PI) * T * 0.7;
+      if (k >= 1) { m.jump = null; m.z = 0; m.jumpT = 1.8 + Math.random() * 2.2; }
+      continue;
+    }
+    // chameleon: střídá viditelnou a neviditelnou fázi; neviditelný se plíží k hráči
+    if (t.hides) { m.hideT -= dt; if (m.hideT <= 0) { m.hidden = !m.hidden; m.hideT = m.hidden ? 3.5 : 2.5; s.events.push(m.hidden ? 'hide' : 'unhide'); } }
     const gx = m.cx * T + T / 2, gy = m.cy * T + T / 2;
     const atCenter = Math.abs(m.x - gx) < 1.5 && Math.abs(m.y - gy) < 1.5;
     if (atCenter) {
       m.x = gx; m.y = gy;
       let next = null;
       const target = nearestPlayer(s, m.x, m.y);
-      if (t.chase && target) {
-        m.think -= dt;
-        if (m.think <= 0) { m.think = 0.5; const tx = cell(target.x), ty = cell(target.y);
+      // hltoun: na políčku s bombou ji spolkne (i power-up); po třetí bombě praskne
+      if (t.eats) {
+        const b = E.bombAt(s, m.cx, m.cy);
+        if (b) { s.bombs.splice(s.bombs.indexOf(b), 1); m.eaten++; s.events.push('gulp');
+          if (m.eaten >= GLUTTON_POP) { popGlutton(s, m); continue; } }
+        const ui = s.powerups.findIndex(u => u.cx === m.cx && u.cy === m.cy);
+        if (ui >= 0) { s.powerups.splice(ui, 1); s.events.push('gulp'); }
+      }
+      // krtek: zahrabe se (nezranitelný, prochází cihlami, míří k hráči), po chvíli vyleze na volném políčku
+      if (t.burrows) {
+        if (!m.under && m.burrowT <= 0) { m.under = true; m.burrowT = 2.6; m.path = null; s.events.push('dig'); }
+        else if (m.under && m.burrowT <= 0 && s.grid[m.cy][m.cx] === EMPTY && !E.bombAt(s, m.cx, m.cy)) {
+          m.under = false; m.burrowT = 4 + Math.random() * 2; m.grace = 0.6; m.path = null; s.events.push('dig'); }
+      }
+      // žabák: občas skočí o dvě políčka – přes cihlu, bombu i oheň (ne přes zeď)
+      if (t.jumps && m.jumpT <= 0) {
+        const opts = DIRS.filter(([dx, dy]) => { const mx = m.cx + dx, my = m.cy + dy, lx = m.cx + 2 * dx, ly = m.cy + 2 * dy;
+          return s.grid[my] && s.grid[my][mx] !== undefined && s.grid[my][mx] !== WALL && s.grid[my][mx] < NEST && s.grid[ly] && s.grid[ly][lx] === EMPTY && !E.bombAt(s, lx, ly); });
+        if (opts.length) {
+          // raději směrem k hráči
+          let d = opts[Math.floor(Math.random() * opts.length)];
+          if (target && Math.random() < 0.6) { const tx = cell(target.x), ty = cell(target.y);
+            d = opts.slice().sort((p, q) => (Math.abs(m.cx + 2 * p[0] - tx) + Math.abs(m.cy + 2 * p[1] - ty)) - (Math.abs(m.cx + 2 * q[0] - tx) + Math.abs(m.cy + 2 * q[1] - ty)))[0]; }
+          m.jump = { x0: m.x, y0: m.y, t: 0, dur: 0.55 }; m.dir = d; m.cx += 2 * d[0]; m.cy += 2 * d[1]; m.path = null; s.events.push('jump');
+          continue;
+        }
+        m.jumpT = 0.6;
+      }
+      // pavouk: za sebou nechává pavučiny
+      if (t.webs && m.webT <= 0 && s.grid[m.cy][m.cx] === EMPTY && !s.webs.some(w => w.cx === m.cx && w.cy === m.cy) && !isObjectiveCell(s, m.cx, m.cy) && s.webs.length < 12) {
+        s.webs.push({ cx: m.cx, cy: m.cy, life: WEB_LIFE }); m.webT = 1.4 + Math.random();
+      }
+      // kam jít: hltoun k nejbližší bombě/power-upu, lovci (a neviditelný chameleon, zahrabaný krtek) k hráči
+      let goal = null;
+      if (t.eats) { const o = nearestThing(s.bombs, m, 5) || nearestThing(s.powerups, m, 5); if (o) goal = [o.cx, o.cy]; }
+      if (!goal && target && (t.chase || (t.hides && m.hidden) || m.under)) goal = [cell(target.x), cell(target.y)];
+      if (goal) {
+        m.think -= dt; const key = goal.join(',');
+        if (m.think <= 0 || m.goalKey !== key) { m.think = 0.5; m.goalKey = key; const [tx, ty] = goal;
           const path = bfsPath(s, m.cx, m.cy, (x, y) => x === tx && y === ty, (x, y) => monsterCanEnter(s, m, x, y) || (x === tx && y === ty));
           m.path = path && path.length > 1 ? path.slice(1) : null; }
         if (m.path && m.path.length) { const [nx, ny] = m.path[0]; if (monsterCanEnter(s, m, nx, ny)) { next = [nx - m.cx, ny - m.cy]; m.path.shift(); } else m.path = null; }
       }
       if (!next) {
-        const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dy]) => monsterCanEnter(s, m, m.cx + dx, m.cy + dy));
+        const dirs = DIRS.filter(([dx, dy]) => monsterCanEnter(s, m, m.cx + dx, m.cy + dy));
         const fwd = dirs.find(([dx, dy]) => dx === m.dir[0] && dy === m.dir[1]);
         if (fwd && Math.random() < 0.7) next = fwd; else if (dirs.length) next = dirs[Math.floor(Math.random() * dirs.length)];
       }
-      if (t.shoots) {
-        // střelec: když je hráč ve stejném řádku/sloupci s volným výhledem, otočí se k němu a vystřelí
+      if (t.shoots && !m.under) {
+        // střelec / sněhulák: když je hráč ve stejném řádku/sloupci s volným výhledem, otočí se k němu a vystřelí
         m.shootT -= dt;
-        if (target && m.shootT <= 0) { const tx = cell(target.x), ty = cell(target.y);
+        if (target && m.shootT <= 0 && !(t.shoots === 'ice' && target.frozen > 0)) { const tx = cell(target.x), ty = cell(target.y);
           if ((tx === m.cx || ty === m.cy) && lineClear(s, m.cx, m.cy, tx, ty)) {
-            const d = [Math.sign(tx - m.cx), Math.sign(ty - m.cy)]; m.dir = d; shoot(s, m.x, m.y, d, 5); m.shootT = s.diff.shootEvery; next = null; m.think = 0.4; }
+            const d = [Math.sign(tx - m.cx), Math.sign(ty - m.cy)]; m.dir = d;
+            shoot(s, m.x, m.y, d, t.shoots === 'ice' ? 4 : 5, t.shoots); m.shootT = s.diff.shootEvery * (t.shoots === 'ice' ? 1.2 : 1); next = null; m.think = 0.4; }
         }
         if (next && Math.random() < 0.4) next = null;   // střelec je váhavý
       }
       if (next) { m.dir = next; m.cx += next[0]; m.cy += next[1]; }
     } else {
-      const step = m.speed * T * dt;
+      const step = m.speed * T * dt * (m.under ? 1.3 : 1);
       m.x += Math.sign(gx - m.x) * Math.min(step, Math.abs(gx - m.x));
       m.y += Math.sign(gy - m.y) * Math.min(step, Math.abs(gy - m.y));
     }
-    if (m.grace <= 0) for (const p of s.players) if (p.alive && Math.abs(m.x - p.x) < T * 0.6 && Math.abs(m.y - p.y) < T * 0.6) hurtPlayer(s, p);
+    if (m.grace <= 0 && !m.under) for (const p of s.players) if (p.alive && Math.abs(m.x - p.x) < T * 0.6 && Math.abs(m.y - p.y) < T * 0.6) hurtPlayer(s, p);
   }
-  // oheň zraňuje příšery
-  for (const f of s.fires) for (const m of s.monsters) if (m.alive && m.hitCd <= 0 && cell(m.x) === f.cx && cell(m.y) === f.cy) {
+  // oheň zraňuje příšery (ne zahrabaného krtka a žabáka ve skoku)
+  for (const f of s.fires) for (const m of s.monsters.slice()) if (m.alive && !m.under && !m.jump && m.hitCd <= 0 && cell(m.x) === f.cx && cell(m.y) === f.cy) {
     m.hp--; m.hitCd = 0.6;
-    if (m.hp <= 0) { m.alive = false; s.score += MONSTER_TYPES[m.type].points * (s.level + 1); s.events.push('monster'); if (Math.random() < 0.3) E.dropPowerup(s, m.cx, m.cy, true); }
+    if (m.hp <= 0) killMonster(s, m);
     else s.events.push('bosshit');
   }
+}
+function killMonster(s, m) {
+  const t = MONSTER_TYPES[m.type];
+  m.alive = false; s.score += Math.round(t.points * (m.small ? 0.5 : 1)) * (s.level + 1); s.events.push('monster');
+  if (t.splits && !m.small) {
+    // sliz se rozpadne na dva malé, rychlejší, kteří se rozutečou opačnými směry
+    const dirs = DIRS.filter(([dx, dy]) => monsterCanEnter(s, m, m.cx + dx, m.cy + dy));
+    for (let i = 0; i < 2; i++) {
+      const k = makeMonster(m.type, m.cx, m.cy, 1); k.speed = m.speed * 1.45; k.small = true; k.grace = 0.8; k.hitCd = 0.8;
+      const d = dirs[i % Math.max(1, dirs.length)]; if (d) { k.dir = d; k.cx += d[0]; k.cy += d[1]; }
+      s.monsters.push(k);
+    }
+    s.events.push('split');
+  } else if (Math.random() < 0.3) E.dropPowerup(s, m.cx, m.cy, true);
+}
+function popGlutton(s, m) {
+  // přejedený hltoun praskne: výbuch o dosahu 2, který zraní každého (je to „ničí“ bomba)
+  killMonster(s, m); s.events.push('burp');
+  const b = { cx: m.cx, cy: m.cy, owner: null, timer: 0, fire: 2, passable: [], moving: null, mx: m.x, my: m.y };
+  s.bombs.push(b); E.explode(s, b);
+}
+function isObjectiveCell(s, x, y) {
+  return (s.portal && s.portal.cx === x && s.portal.cy === y) || s.switches.some(w => w.cx === x && w.cy === y);
+}
+function stepWebs(s, dt) {
+  for (const w of s.webs) { w.life -= dt; if (s.fires.some(f => f.cx === w.cx && f.cy === w.cy)) w.life = 0; }
+  s.webs = s.webs.filter(w => w.life > 0);
 }
 function lineClear(s, x0, y0, x1, y1) {
   const dx = Math.sign(x1 - x0), dy = Math.sign(y1 - y0); let x = x0 + dx, y = y0 + dy;
   while (x !== x1 || y !== y1) { if (s.grid[y][x] !== EMPTY) return false; x += dx; y += dy; if (Math.abs(x - x0) + Math.abs(y - y0) > 8) return false; }
   return true;
 }
-function shoot(s, x, y, d, cellsPerSec) { s.projectiles.push({ x, y, dx: d[0], dy: d[1], speed: cellsPerSec * T, life: 3 }); s.events.push('shoot'); }
+function shoot(s, x, y, d, cellsPerSec, kind) { s.projectiles.push({ x, y, dx: d[0], dy: d[1], speed: cellsPerSec * T, life: 3, kind: kind || 'fire' }); s.events.push(kind === 'ice' ? 'snowball' : 'shoot'); }
 function stepProjectiles(s, dt) {
   for (const pr of s.projectiles) {
     pr.x += pr.dx * pr.speed * dt; pr.y += pr.dy * pr.speed * dt; pr.life -= dt;
     const cx = cell(pr.x), cy = cell(pr.y);
     if (cx < 0 || cy < 0 || cx >= COLS || cy >= ROWS || s.grid[cy][cx] !== EMPTY) pr.life = 0;
-    else for (const p of s.players) if (p.alive && Math.abs(p.x - pr.x) < T * 0.4 && Math.abs(p.y - pr.y) < T * 0.4) { hurtPlayer(s, p); pr.life = 0; }
+    else for (const p of s.players) if (p.alive && Math.abs(p.x - pr.x) < T * 0.4 && Math.abs(p.y - pr.y) < T * 0.4) {
+      if (pr.kind === 'ice') { if (p.grace <= 0 && !(p.frozen > 0)) { p.frozen = FREEZE_TIME; s.events.push('freeze'); } }
+      else hurtPlayer(s, p);
+      pr.life = 0; }
   }
   s.projectiles = s.projectiles.filter(pr => pr.life > 0);
 }
@@ -279,7 +381,7 @@ function stepNest(s, dt) {
   const own = s.monsters.filter(m => m.alive && m.fromNest).length;
   if (n.spawnT <= 0 && own < 3) { n.spawnT = 6;
     const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => [n.cx + dx, n.cy + dy]).filter(([x, y]) => s.grid[y] && s.grid[y][x] === EMPTY);
-    if (dirs.length) { const [x, y] = dirs[Math.floor(Math.random() * dirs.length)]; const m = makeMonster('balloon', x, y, s.diff.speed); m.fromNest = true; m.grace = 1; s.monsters.push(m); s.events.push('spawn'); } }
+    if (dirs.length) { const [x, y] = dirs[Math.floor(Math.random() * dirs.length)]; const m = makeMonster(Math.random() < 0.3 ? 'slime' : 'balloon', x, y, s.diff.speed); m.fromNest = true; m.grace = 1; s.monsters.push(m); s.events.push('spawn'); } }
 }
 function stepBoss(s, dt) {
   const b = s.boss; if (!b || !b.alive) return;
@@ -316,7 +418,8 @@ function stepBoss(s, dt) {
   const helpers = s.monsters.filter(m => m.alive).length;
   if (b.spawnT <= 0 && helpers < (b.enraged ? 5 : 4)) { b.spawnT = b.enraged ? 6 : 8;
     const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => [b.cx + dx, b.cy + dy]).filter(([x, y]) => s.grid[y] && s.grid[y][x] === EMPTY);
-    for (let i = 0; i < 2 && dirs.length; i++) { const [x, y] = pickRandom(dirs); const m = makeMonster(b.enraged && s.diff === DIFFICULTIES.hard ? 'hunter' : 'balloon', x, y, s.diff.speed); m.grace = 1; s.monsters.push(m); }
+    for (let i = 0; i < 2 && dirs.length; i++) { const [x, y] = pickRandom(dirs); const kind = b.enraged ? (s.diff === DIFFICULTIES.hard ? 'hunter' : pickRandom(['frog', 'slime', 'balloon'])) : pickRandom(['balloon', 'balloon', 'frog']);
+      const m = makeMonster(kind, x, y, s.diff.speed); m.grace = 1; s.monsters.push(m); }
     s.events.push('spawn'); }
   if (b.enraged && b.shootT <= 0 && atCenter) { b.shootT = 3.2; for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) shoot(s, b.x, b.y, d, 4); }
 }
@@ -326,6 +429,11 @@ function stepTeam(s, dt) {
   for (const p of s.players) {
     if (p.left) continue;
     p.grace -= dt;
+    if (p.frozen > 0) {
+      p.frozen = p.alive ? p.frozen - dt : 0;
+      // spoluhráč rozmrazí zmrzlého dotykem
+      if (p.frozen > 0 && s.players.some(q => q !== p && q.alive && !(q.frozen > 0) && Math.abs(q.x - p.x) < T * 0.9 && Math.abs(q.y - p.y) < T * 0.9)) { p.frozen = 0; s.events.push('thaw'); }
+    }
     if (!p.alive && p.respawn > 0) { p.respawn -= dt; if (p.respawn <= 0) revive(s, p); }
   }
   // spínače: oba stisknuté najednou → hotovo napořád
@@ -358,7 +466,7 @@ function revive(s, p) {
     const cands = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => [mx + dx, my + dy]).filter(([x, y]) => s.grid[y] && s.grid[y][x] === EMPTY && !E.bombAt(s, x, y) && !s.fires.some(f => f.cx === x && f.cy === y));
     if (cands.length) spot = cands[0]; }
   if (!spot) spot = START_CELLS[s.players.indexOf(p) % START_CELLS.length];
-  p.x = spot[0] * T + T / 2; p.y = spot[1] * T + T / 2; p.alive = true; p.grace = GRACE_TIME; p.respawn = 0;
+  p.x = spot[0] * T + T / 2; p.y = spot[1] * T + T / 2; p.alive = true; p.grace = GRACE_TIME; p.respawn = 0; p.frozen = 0;
   p.maxBombs = Math.max(1, p.maxBombs - 1); p.fire = Math.max(2, p.fire - 1);
   s.events.push('revive');
 }
@@ -371,11 +479,19 @@ function step(s, inputs, dt) {
   if (s.intro > 0) { s.intro -= dt; return null; }
   s.time += dt;
   const aliveBefore = s.players.map(p => p.alive);
-  E.stepPlayers(s, inputs, dt);
+  // zmrzlý hráč se nehýbe ani nepokládá bomby; v pavučině jde pomalu
+  const inp = {}, speeds = s.players.map(p => p.speed);
+  for (const p of s.players) {
+    inp[p.id] = p.frozen > 0 ? { dx: 0, dy: 0, bomb: false } : (inputs[p.id] || { dx: 0, dy: 0, bomb: false });
+    if (p.alive && s.webs.some(w => w.cx === cell(p.x) && w.cy === cell(p.y))) p.speed *= WEB_SLOW;
+  }
+  E.stepPlayers(s, inp, dt);
+  s.players.forEach((p, i) => { p.speed = speeds[i]; });
   E.stepBombs(s, dt);
   E.stepFires(s, dt, (f, p) => p.grace <= 0 && (s.opts.friendlyFire || f.owner === p.id || f.owner == null));
   E.stepPickups(s);
   stepMonsters(s, dt);
+  stepWebs(s, dt);
   stepProjectiles(s, dt);
   stepNest(s, dt);
   stepBoss(s, dt);
@@ -409,9 +525,9 @@ function view(s) {
     level: s.level, levelCount: s.levelCount, name: s.name, sub: s.sub, theme: s.theme, lives: s.lives, maxLives: s.maxLives, score: s.score,
     objective: objectiveText(s), intro: s.intro, outro: s.outro, done: s.done, friendlyFire: s.opts.friendlyFire, time: s.time,
     portal: s.portal, keys: s.keys, switches: s.switches, nest: s.nest && s.nest.hp > 0 ? s.nest : null,
-    monsters: s.monsters.filter(m => m.alive), projectiles: s.projectiles,
+    monsters: s.monsters.filter(m => m.alive), projectiles: s.projectiles, webs: s.webs, newcomers: s.newcomers,
     boss: s.boss && s.boss.alive ? s.boss : null,
-    team: s.players.map(p => ({ id: p.id, respawn: p.respawn, grace: p.grace, left: p.left })),
+    team: s.players.map(p => ({ id: p.id, respawn: p.respawn, grace: p.grace, left: p.left, frozen: p.frozen })),
   };
 }
 // kompaktní snapshot pro síť: základ z enginu + kooperativní doplněk „c“
@@ -424,10 +540,14 @@ function snapshot(s) {
     ke: s.keys.map(k => [k.cx, k.cy, k.revealed ? 1 : 0, k.taken ? 1 : 0]),
     sw: s.switches.map(w => [w.cx, w.cy, w.on ? 1 : 0]),
     ne: s.nest && s.nest.hp > 0 ? [s.nest.cx, s.nest.cy, s.nest.hp, s.nest.maxHp] : null,
-    m: s.monsters.filter(m => m.alive).map(m => [m.type, Math.round(m.x), Math.round(m.y), m.dir[0], m.dir[1], +m.anim.toFixed(1), m.hp]),
-    pr: s.projectiles.map(p => [Math.round(p.x), Math.round(p.y), p.dx, p.dy]),
+    // příšera: typ, x, y, směr, animace, hp, příznaky (1 malý · 2 zahrabaný · 4 neviditelný · 8 chvilka po vylezení), výška skoku, snědené bomby
+    m: s.monsters.filter(m => m.alive).map(m => [m.type, Math.round(m.x), Math.round(m.y), m.dir[0], m.dir[1], +m.anim.toFixed(1), m.hp,
+      (m.small ? 1 : 0) | (m.under ? 2 : 0) | (m.hidden ? 4 : 0) | (m.grace > 0 ? 8 : 0), Math.round(m.z || 0), m.eaten || 0]),
+    pr: s.projectiles.map(p => [Math.round(p.x), Math.round(p.y), p.dx, p.dy, p.kind === 'ice' ? 1 : 0]),
+    we: s.webs.map(w => [w.cx, w.cy, +w.life.toFixed(1)]),
+    nw: s.intro > 0 ? s.newcomers : null,
     bs: s.boss && s.boss.alive ? [Math.round(s.boss.x), Math.round(s.boss.y), s.boss.dir[0], s.boss.dir[1], +s.boss.anim.toFixed(1), s.boss.hp, s.boss.maxHp, s.boss.enraged ? 1 : 0, s.boss.hitCd > 0.5 ? 1 : 0] : null,
-    tp: s.players.map(p => [p.id, +p.respawn.toFixed(1), p.grace > 0 ? 1 : 0, p.left ? 1 : 0]),
+    tp: s.players.map(p => [p.id, +p.respawn.toFixed(1), p.grace > 0 ? 1 : 0, p.left ? 1 : 0, +(p.frozen || 0).toFixed(1)]),
   };
   return base;
 }
@@ -440,12 +560,14 @@ function viewFromSnapshot(c) {
     keys: c.ke.map(k => ({ cx: k[0], cy: k[1], revealed: !!k[2], taken: !!k[3] })),
     switches: c.sw.map(w => ({ cx: w[0], cy: w[1], on: !!w[2] })),
     nest: c.ne ? { cx: c.ne[0], cy: c.ne[1], hp: c.ne[2], maxHp: c.ne[3] } : null,
-    monsters: c.m.map(m => ({ type: m[0], x: m[1], y: m[2], dir: [m[3], m[4]], anim: m[5], hp: m[6], alive: true })),
-    projectiles: c.pr.map(p => ({ x: p[0], y: p[1], dx: p[2], dy: p[3] })),
+    monsters: c.m.map(m => ({ type: m[0], x: m[1], y: m[2], dir: [m[3], m[4]], anim: m[5], hp: m[6], alive: true,
+      small: !!(m[7] & 1), under: !!(m[7] & 2), hidden: !!(m[7] & 4), grace: m[7] & 8 ? 1 : 0, z: m[8] || 0, eaten: m[9] || 0 })),
+    projectiles: c.pr.map(p => ({ x: p[0], y: p[1], dx: p[2], dy: p[3], kind: p[4] ? 'ice' : 'fire' })),
+    webs: (c.we || []).map(w => ({ cx: w[0], cy: w[1], life: w[2] })), newcomers: c.nw || [],
     boss: c.bs ? { x: c.bs[0], y: c.bs[1], dir: [c.bs[2], c.bs[3]], anim: c.bs[4], hp: c.bs[5], maxHp: c.bs[6], enraged: !!c.bs[7], hitCd: c.bs[8] ? 1 : 0, alive: true } : null,
-    team: c.tp.map(t => ({ id: t[0], respawn: t[1], grace: t[2], left: !!t[3] })),
+    team: c.tp.map(t => ({ id: t[0], respawn: t[1], grace: t[2], left: !!t[3], frozen: t[4] || 0 })),
   };
 }
 
-return { LEVELS, DIFFICULTIES, MONSTER_TYPES, NEST, INTRO_TIME, OUTRO_TIME, RESPAWN_TIME, createLevel, step, carryOf, view, snapshot, viewFromSnapshot, objectiveText, debugFinishLevel };
+return { LEVELS, DIFFICULTIES, MONSTER_TYPES, NEST, INTRO_TIME, OUTRO_TIME, RESPAWN_TIME, createLevel, makeMonster, step, carryOf, view, snapshot, viewFromSnapshot, objectiveText, debugFinishLevel };
 });
