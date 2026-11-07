@@ -36,6 +36,9 @@ Pravidla:
   5 s, 10 s, 15 s, dál už vždy 20 s; v dalším levelu se počítá od začátku. Odpočet vidí mrtvý i spoluhráč
   (v HUD a nad tělem). Žádné společné životy ani konec výpravy nejsou – když padnou oba naráz, oba jen
   čekají. Počet smrtí se jen počítá do statistiky (☠ v HUD a na konci).
+- **Oživovací srdce ❤️.** Dokud někdo čeká na oživení, může z rozbité cihly (18 %) nebo zabité příšery (35 %)
+  vypadnout červené srdce. Jakmile ho živý hráč sebere, čekající spoluhráč se vrátí hned (na bezpečné místo,
+  s nesmrtelností). Když nikdo nečeká, srdce nepadá; na mapě je vždy nejvýš jedno.
 - **Friendly fire je vypnuté**: plamen spoluhráče ti neublíží, vlastní bomba ano. V nastavení se dá zapnout.
 - Portál je vidět od začátku, otevře se po splnění úkolu; stačí, když do něj vejde jeden hráč.
 - Úkol levelu je pořád vidět v HUD („Úkol: …“), mezi levely se ukáže název a úkol dalšího bludiště.

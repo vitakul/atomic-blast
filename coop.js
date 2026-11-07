@@ -16,6 +16,15 @@ const INTRO_TIME = 2.6, OUTRO_TIME = 2.8, GRACE_TIME = 2.5;
 // (5 s, 10 s, 15 s, 20 s, …20 s), v dalším levelu se počítá znovu od začátku.
 const RESPAWN_BASE = 5, RESPAWN_STEP = 5, RESPAWN_MAX = 20;
 function respawnTime(deaths) { return Math.min(RESPAWN_MAX, RESPAWN_BASE + RESPAWN_STEP * Math.max(0, deaths - 1)); }
+// Oživovací power-up ❤: padá jen z cihly/příšery, když někdo čeká na oživení; sebrání živým hráčem vrátí všechny čekající hned
+const REVIVE_DROP_BRICK = 0.18, REVIVE_DROP_MONSTER = 0.35;
+function someoneWaiting(s) { return s.players.some(p => !p.alive && !p.left && p.respawn > 0); }
+function maybeDropRevive(s, x, y, chance) {
+  if (!someoneWaiting(s) || s.powerups.some(u => u.kind === 'revive') || Math.random() >= chance) return false;
+  s.powerups.push({ cx: x, cy: y, kind: 'revive', shield: E.FIRE_TIME + 0.05 });
+  s.events.push('reviveup');
+  return true;
+}
 const START_CELLS = [[1, 1], [2, 1], [1, 2]];
 
 // ---------- Obtížnost ----------
@@ -167,7 +176,8 @@ function createLevel(levelIndex, playerInfos, opts, carry) {
     s.boss = { cx: bx, cy: by, x: bx * T + T / 2, y: by * T + T / 2, dir: [0, 1], anim: 0, hp: diff.bossHp, maxHp: diff.bossHp, hitCd: 0, spawnT: 6, shootT: 4, think: 0, path: null, speed: 1.1 * diff.speed, enraged: false, alive: true };
   }
   // háčky pro engine.explode
-  s.onBrick = (x, y) => { const k = s.keys.find(k => k.cx === x && k.cy === y); if (k) { k.revealed = true; s.events.push('reveal'); return true; } return false; };
+  s.onBrick = (x, y) => { const k = s.keys.find(k => k.cx === x && k.cy === y); if (k) { k.revealed = true; s.events.push('reveal'); return true; }
+    return maybeDropRevive(s, x, y, REVIVE_DROP_BRICK); };
   s.onSpecial = (x, y) => { if (s.nest && s.nest.cx === x && s.nest.cy === y && s.nest.hitCd <= 0) { s.nest.hp--; s.nest.hitCd = 0.6; s.events.push('bosshit');
     if (s.nest.hp <= 0) { g[y][x] = EMPTY; s.nest.hp = 0; s.events.push('nestdown'); s.score += 1500; } } };
   return s;
@@ -258,7 +268,8 @@ function stepMonsters(s, dt) {
   // oheň zraňuje příšery
   for (const f of s.fires) for (const m of s.monsters) if (m.alive && m.hitCd <= 0 && cell(m.x) === f.cx && cell(m.y) === f.cy) {
     m.hp--; m.hitCd = 0.6;
-    if (m.hp <= 0) { m.alive = false; s.score += MONSTER_TYPES[m.type].points * (s.level + 1); s.events.push('monster'); if (Math.random() < 0.3) E.dropPowerup(s, m.cx, m.cy, true); }
+    if (m.hp <= 0) { m.alive = false; s.score += MONSTER_TYPES[m.type].points * (s.level + 1); s.events.push('monster');
+      if (!maybeDropRevive(s, m.cx, m.cy, REVIVE_DROP_MONSTER) && Math.random() < 0.3) E.dropPowerup(s, m.cx, m.cy, true); }
     else s.events.push('bosshit');
   }
 }
@@ -349,6 +360,17 @@ function stepTeam(s, dt) {
   } else if (s.boss && !s.boss.alive) return 'won';
   return null;
 }
+// ❤ sebrané živým hráčem oživí hned každého, kdo čeká (před engine.stepPickups, aby ho ten nespolkl)
+function stepRevivePickup(s) {
+  for (const p of s.players) if (p.alive) {
+    const i = s.powerups.findIndex(u => u.kind === 'revive' && u.cx === cell(p.x) && u.cy === cell(p.y));
+    if (i < 0) continue;
+    s.powerups.splice(i, 1); s.score += 200;
+    const waiting = s.players.filter(q => !q.alive && !q.left && q.respawn > 0);
+    for (const q of waiting) revive(s, q);   // revive() sám hlásí událost 'revive'
+    if (!waiting.length) s.events.push('powerup');
+  }
+}
 function onDeath(s, p) {
   p.deaths++; s.deaths++;
   p.respawn = respawnTime(p.deaths);   // vždy se vrátí, jen čeká déle a déle
@@ -388,6 +410,7 @@ function step(s, inputs, dt) {
   E.stepPlayers(s, inputs, dt);
   E.stepBombs(s, dt);
   E.stepFires(s, dt, (f, p) => p.grace <= 0 && (s.opts.friendlyFire || f.owner === p.id || f.owner == null));
+  stepRevivePickup(s);
   E.stepPickups(s);
   stepMonsters(s, dt);
   stepProjectiles(s, dt);
@@ -409,6 +432,11 @@ function debugFinishLevel(s) {
   const p = s.players.find(p => p.alive) || s.players[0];
   if (s.portal) { p.alive = true; p.x = s.portal.cx * T + T / 2; p.y = s.portal.cy * T + T / 2; }
   s.intro = 0;
+}
+// Testovací zkratka: položí ❤ na políčko hráče (pro ověření oživení power-upem po Wi-Fi)
+function debugSpawnRevive(s, playerId) {
+  const p = s.players.find(q => q.id === playerId) || s.players[0];
+  s.powerups.push({ cx: cell(p.x), cy: cell(p.y), kind: 'revive', shield: 0 });
 }
 // statistiky k přenesení do dalšího levelu
 function carryOf(s) {
@@ -460,5 +488,5 @@ function viewFromSnapshot(c) {
   };
 }
 
-return { LEVELS, DIFFICULTIES, MONSTER_TYPES, NEST, INTRO_TIME, OUTRO_TIME, GRACE_TIME, respawnTime, createLevel, step, carryOf, view, snapshot, viewFromSnapshot, objectiveText, debugFinishLevel };
+return { LEVELS, DIFFICULTIES, MONSTER_TYPES, NEST, INTRO_TIME, OUTRO_TIME, GRACE_TIME, respawnTime, createLevel, step, carryOf, view, snapshot, viewFromSnapshot, objectiveText, debugFinishLevel, debugSpawnRevive };
 });
