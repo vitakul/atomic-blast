@@ -64,9 +64,11 @@ const cell = v => Math.floor(v / T);
 function bombAt(s, cx, cy) { return s.bombs.find(b => b.cx === cx && b.cy === cy); }
 function solidAt(s, cx, cy, forPlayer) {
   if (cy < 0 || cy >= ROWS || cx < 0 || cx >= COLS) return true;
-  if (s.grid[cy][cx] !== EMPTY) return true;
+  const v = s.grid[cy][cx];
+  // kooperace: zlaté schopnosti „průchod cihlami“ (passBricks) a „přeskok bomb“ (passBombs)
+  if (v !== EMPTY && !(v === BRICK && forPlayer && forPlayer.passBricks)) return true;
   const b = bombAt(s, cx, cy);
-  if (b && !(forPlayer && b.passable.includes(forPlayer.id))) return true;
+  if (b && !(forPlayer && (forPlayer.passBombs || b.passable.includes(forPlayer.id)))) return true;
   return false;
 }
 function collides(s, x, y, p) {
@@ -126,6 +128,7 @@ function explode(s, b) {
         s.grid[y][x] = EMPTY; add(x, y, dx ? 'h' : 'v');
         // háček (kooperace): pod cihlou může být klíč apod. – pak nepadá power-up
         if (!(s.onBrick && s.onBrick(x, y))) dropPowerup(s, x, y);
+        if (b.pierce) continue;   // kooperace: průrazný plamen letí dál přes cihly
         break;
       }
       if (v >= 3) { add(x, y, dx ? 'h' : 'v'); if (s.onSpecial) s.onSpecial(x, y, b); break; }   // speciální pevné políčko (hnízdo)
@@ -233,7 +236,7 @@ function snapshot(s) {
     g: s.grid.map(row => row.join('')).join(''),
     b: s.bombs.map(b => [b.cx, b.cy, Math.round(b.mx), Math.round(b.my), +b.timer.toFixed(2)]),
     f: s.fires.map(f => [f.cx, f.cy, +f.timer.toFixed(2), f.kind]),
-    u: s.powerups.map(u => [u.cx, u.cy, u.kind]),
+    u: s.powerups.map(u => u.gold ? [u.cx, u.cy, u.kind, u.gold] : [u.cx, u.cy, u.kind]),   // zlatý power-up nese i druh schopnosti
     p: s.players.map(p => ({ id: p.id, name: p.name, x: Math.round(p.x), y: Math.round(p.y), c: p.color, a: p.alive ? 1 : 0,
       dx: p.dir.x, dy: p.dir.y, an: +p.anim.toFixed(2), mb: p.maxBombs, fi: p.fire, sp: p.speed, k: p.kick ? 1 : 0 })),
     t: Math.max(0, Math.ceil(s.roundTimer)),

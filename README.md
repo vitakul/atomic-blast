@@ -18,16 +18,25 @@ Esc kdykoli vrátí do menu.
 
 ## Společná výprava (kooperativní kampaň)
 
-Hráči procházejí šest navazujících bludišť, každé s jinou grafikou a úkolem. Nesoupeří, spolupracují:
+Hráči procházejí jedenáct navazujících bludišť, každé s jinou grafikou a úkolem. Nesoupeří, spolupracují:
 
 | Level | Prostředí | Úkol |
 |---|---|---|
 | 1 | Les | zničit všechny příšery |
 | 2 | Jeskyně | najít 3 klíče schované pod cihlami |
-| 3 | Ledová pevnost | stoupnout si **oba zároveň** na dva spínače v protilehlých koutech |
-| 4 | Lávové doly | zničit hnízdo (3 zásahy ohněm), ze kterého se líhnou příšery, a pak dočistit mapu |
-| 5 | Hrad | 2 klíče + zničit všechny příšery (včetně obrněnců na 3 zásahy) |
-| 6 | Bossova komnata | porazit Velkého Bombuse |
+| 3 | **Bažina** (nová) | osvobodit 3 zvířátka – odpálit klec bombou a pak se zvířátka dotknout |
+| 4 | Ledová pevnost | stoupnout si **oba zároveň** na dva spínače v protilehlých koutech |
+| 5 | **Krystalový důl** (nový) | posbírat 10 krystalů (6 leží volně, 4 jsou pod cihlami) |
+| 6 | Lávové doly | zničit hnízdo (3 zásahy ohněm), ze kterého se líhnou příšery, a pak dočistit mapu |
+| 7 | **Pyramida** (nová) | šlápnout na 4 runy popořadě 1→2→3→4; špatná runa = znovu od jedničky |
+| 8 | **Noční hřbitov** (nový) | ve tmě zapálit bombou 4 pochodně – každá hoří jen chvíli (30 s, lehká 40 s, těžká 22 s), musí hořet všechny naráz |
+| 9 | Hrad | 2 klíče + zničit všechny příšery (včetně obrněnců na 3 zásahy) |
+| 10 | **Továrna** (nová) | vydržet 60 s (lehká 50 s, těžká 70 s) – příšery pořád přicházejí, ke konci po dvou |
+| 11 | Bossova komnata | porazit Velkého Bombuse |
+
+Úvod každého levelu představí nové příšery i nové věci (klece, krystaly, runy, pochodně…). Ve Továrně
+ukazuje časomíra nahoře červeně, kolik zbývá vydržet; na Nočním hřbitově je vidět jen kolem hráčů,
+ohně a hořících pochodní.
 
 Pravidla:
 
@@ -53,13 +62,38 @@ Pravidla:
   | Sliz | 1 Les | po zásahu se rozdělí na dva malé, rychlejší slizy |
   | Krtek | 2 Jeskyně | zahrabe se (nezranitelný, leze pod cihlami) a vyleze poblíž hráče; chvíli bliká a ještě nezraňuje |
   | Pavouk | 2 Jeskyně | nechává pavučiny, ve kterých hráč jde pomalu; oheň je spálí, samy zmizí po chvíli |
-  | Sněhulák | 3 Ledová pevnost | hází sněhové koule, které hráče na ~2 s zmrazí; spoluhráč ho rozmrazí dotykem (2 zásahy) |
-  | Hltoun | 4 Lávové doly | jde po bombách a power-upech a polyká je; po třetí bombě praskne a vybuchne (zraní každého) |
-  | Chameleon | 5 Hrad | střídavě se zneviditelní a v neviditelnosti se plíží k hráči |
+  | Sněhulák | 4 Ledová pevnost | hází sněhové koule, které hráče na ~2 s zmrazí; spoluhráč ho rozmrazí dotykem (2 zásahy) |
+  | Netopýr | 5 Krystalový důl | rychle létá cik-cak, přes cihly i bomby |
+  | Hltoun | 6 Lávové doly | jde po bombách a power-upech (ne zlatých) a polyká je; po třetí bombě praskne a vybuchne (zraní každého) |
+  | Mumie | 7 Pyramida | jde po hráčích, vydrží 2 zásahy; po prvním se rozmotá a zrychlí |
+  | Chameleon | 8 Noční hřbitov | střídavě se zneviditelní a v neviditelnosti se plíží k hráči |
+  | Bombík | 10 Továrna | když je hráč blízko, položí vlastní bombu (zraní každého) a chvíli ho oheň nechytí |
 
   Hnízdo občas vylíhne i sliz, boss volá na pomoc i žabáky a slizy.
 - Skóre je společné; power-upy se přenášejí do dalšího levelu (po smrti o jeden stupeň níž).
+- **Zlaté power-upy** – viz níže.
 - Obtížnost (lehká · normální · těžká) mění rychlost a počet příšer a životy bosse.
+
+### Zlaté power-upy (speciální schopnosti)
+
+Vzácný zlatý power-up – zlatá zářící dlaždice s třpytkami a ikonou schopnosti. V každém levelu (kromě
+bossovy komnaty) je jeden schovaný pod náhodnou cihlou; navíc může výjimečně vypadnout z jiné cihly (2 %)
+nebo z příšery (5 %). Na mapě je vždy nejvýš jeden a oheň ho nezničí.
+
+- Hráč má **nejvýš jednu zlatou schopnost** – nová nahradí starou.
+- Schopnost **přetrvává mezi levely** a zmizí, až když hráč umře (štít se navíc spotřebuje, když tě zachrání).
+- Po sebrání se dole na obrazovce na pár vteřin ukáže, kdo co dostal a co to umí. V HUD je u hráče
+  ⭐ + ikona + název, kolem hráče zlatá záře a ikonka nad hlavou.
+
+| Schopnost | Co umí |
+|---|---|
+| 👻 Průchod cihlami | procházíš cihlami (jsi v nich průhledný); v cihle ale bombu nepoložíš |
+| 🛡️ Štít | jednou tě zachrání před smrtí (oheň, příšera, střela, boss), pak praskne; kolem hráče modrá bublina |
+| 📡 Rozbuška | tvoje bomby samy nevybuchnou (pojistka 10 s); když už nemáš volnou bombu, další stisk odpálí tu nejstarší. Bomby na rozbušku mají zlatý kroužek |
+| 🧯 Nehořlavost | plameny z bomb ti neublíží – ani vlastní, ani bombíkovy (ohnivé koule střelce ano) |
+| 🧲 Magnet | power-upy, klíče a krystaly do 4 políček se ti samy přisunou |
+| ☄️ Průrazný plamen | oheň tvých bomb proletí přes cihly a rozbije všechny v dosahu |
+| 🦘 Přeskok bomb | chodíš přes bomby, nic tě nezastaví |
 
 Po Wi-Fi se výprava hraje stejně: zakladatel v lobby přepne **REŽIM** na VÝPRAVA, zvolí obtížnost
 a friendly fire a dá start (2–3 hráči). Po vítězství nebo konci výpravy se místnost vrátí do lobby.
@@ -90,5 +124,5 @@ nic dalšího není potřeba.
 - `server/engine.js` – pravidla arény (pohyb, bomby, oheň, power-upy) bez DOM; načítá se v prohlížeči
   i v Node. Lokální aréna a kampaň v `index.html` mají tatáž pravidla napsaná znovu (záměrně, kvůli
   jednomu souboru bez závislostí) – při změně pravidel upravit obě místa.
-- `coop.js` – Společná výprava: levely a témata, úkoly, příšery, boss, oživování. Jeden modul pro
+- `coop.js` – Společná výprava: levely a témata, úkoly, příšery, boss, oživování, zlaté schopnosti. Jeden modul pro
   prohlížeč (lokální hra) i server (hra po Wi-Fi), takže se tato logika nepíše dvakrát.
