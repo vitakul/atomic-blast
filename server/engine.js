@@ -28,7 +28,7 @@ function makeGrid(density) {
 }
 
 // Nastavení místnosti (vybírá zakladatel v lobby)
-const DEFAULT_SETTINGS = { mode: 'arena', powerups: 'normal', roundTime: 120, roundsToWin: 3, suddenDeath: true, difficulty: 'normal', friendlyFire: false };
+const DEFAULT_SETTINGS = { mode: 'arena', powerups: 'normal', roundTime: 120, roundsToWin: 3, suddenDeath: true, difficulty: 'normal', friendlyFire: false, boss: 'random' };
 const POWERUP_PRESETS = {
   low:    { dropRate: 0.35, startBombs: 1, startFire: 2 },
   normal: { dropRate: 0.65, startBombs: 1, startFire: 2 },
@@ -43,6 +43,7 @@ function normalizeSettings(s) {
   o.suddenDeath = !!o.suddenDeath;
   if (!['easy', 'normal', 'hard'].includes(o.difficulty)) o.difficulty = 'normal';
   o.friendlyFire = !!o.friendlyFire;
+  if (typeof o.boss !== 'string' || !/^[a-z]{1,12}$/.test(o.boss)) o.boss = 'random';   // výprava: náhodný nebo konkrétní boss (ověří coop.js)
   return o;
 }
 

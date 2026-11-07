@@ -12,7 +12,7 @@
 const { COLS, ROWS, T, EMPTY, WALL, BRICK, cell } = E;
 const NEST = 3;                       // speciální pevná políčka v mřížce (>= 3 zastaví plamen a zavolá s.onSpecial):
 const CAGE = 4, TORCH = 5;            // hnízdo příšer · klec se zvířátkem · pochodeň
-const INTRO_TIME = 2.6, OUTRO_TIME = 2.8, GRACE_TIME = 2.5;
+const INTRO_TIME = 2.6, OUTRO_TIME = 2.8, GRACE_TIME = 2.5, OUTRO_WON = 5.5;   // po poražení bosse se přehraje jeho „rozpad“
 // Oživení: nikdo nezůstává mimo hru natrvalo. Čekání roste s každou smrtí v daném levelu
 // (5 s, 10 s, 15 s, 20 s, …20 s), v dalším levelu se počítá znovu od začátku.
 const RESPAWN_BASE = 5, RESPAWN_STEP = 5, RESPAWN_MAX = 20;
@@ -63,9 +63,9 @@ function maybeDropGold(s, x, y, chance) {
 // ---------- Obtížnost ----------
 const DIFFICULTIES = {
   // waveEvery/waveCap = jak často a kolik příšer přichází v levelu „vydržte“; torch = jak dlouho hoří pochodeň
-  easy:   { label: 'LEHKÁ',    speed: 0.85, extra: -1, bossHp: 8,  shootEvery: 3.6, waveEvery: 6.5, waveCap: 6,  torch: 40, survive: 50 },
-  normal: { label: 'NORMÁLNÍ', speed: 1.0,  extra: 0,  bossHp: 12, shootEvery: 3.0, waveEvery: 5.0, waveCap: 8,  torch: 30, survive: 60 },
-  hard:   { label: 'TĚŽKÁ',    speed: 1.2,  extra: 1,  bossHp: 16, shootEvery: 2.4, waveEvery: 4.0, waveCap: 10, torch: 22, survive: 70 },
+  easy:   { label: 'LEHKÁ',    speed: 0.85, extra: -1, shootEvery: 3.6, waveEvery: 6.5, waveCap: 6,  torch: 40, survive: 50 },
+  normal: { label: 'NORMÁLNÍ', speed: 1.0,  extra: 0,  shootEvery: 3.0, waveEvery: 5.0, waveCap: 8,  torch: 30, survive: 60 },
+  hard:   { label: 'TĚŽKÁ',    speed: 1.2,  extra: 1,  shootEvery: 2.4, waveEvery: 4.0, waveCap: 10, torch: 22, survive: 70 },
 };
 
 // ---------- Příšery ----------
@@ -121,7 +121,7 @@ const LEVELS = [
     layout: 'factory', density: 0.6, objective: [{ kind: 'survive', pool: ['balloon', 'hunter', 'bomber', 'bat', 'slime', 'mummy', 'frog', 'tank'] }], monsters: ['bomber', 'bomber', 'hunter', 'balloon'],
     tips: [{ icon: '⏱', name: 'Vydržte', desc: 'příšery přicházejí pořád nové – přežijte, než se otevře portál' }] },
   { name: 'BOSSOVA KOMNATA', sub: 'Velký Bombus', theme: { floorA: '#2a1a2a', floorB: '#301e30', wall: '#5a2040', wallLight: '#8a3060', wallDark: '#300818', brick: '#6a4a5a', brickLine: '#3a2030', bg: '#100408' },
-    layout: 'open', density: 0.3, objective: [{ kind: 'boss' }], monsters: [], boss: true },
+    layout: 'open', density: 0.3, objective: [{ kind: 'boss' }], monsters: [], boss: true },   // sub a tips doplní vylosovaný boss (BOSS_TYPES)
 ];
 
 // ---------- Mapa ----------
@@ -197,6 +197,9 @@ function inQuadrant(g, qx, qy, pred) {
 // playerInfos: [{id, name}], opts: {difficulty, friendlyFire}, carry: {score, deaths, players:{id→stats}} z minulého levelu
 function createLevel(levelIndex, playerInfos, opts, carry) {
   const L = LEVELS[levelIndex]; const diff = DIFFICULTIES[(opts && opts.difficulty) || 'normal'] || DIFFICULTIES.normal;
+  // boss se losuje hned při startu výpravy (nebo ho vybrali v nastavení) a nese se v carry až do Bossovy komnaty
+  const bossType = carry && BOSS_TYPES[carry.bossType] ? carry.bossType : pickBossType(opts && opts.boss);
+  const stats = carry && carry.stats ? JSON.parse(JSON.stringify(carry.stats)) : { time: 0, kills: 0, startLevel: levelIndex, players: {}, lastHit: null };
   const s = {
     coop: true, level: levelIndex, levelCount: LEVELS.length, name: L.name, sub: L.sub, theme: L.theme, opts: { difficulty: (opts && opts.difficulty) || 'normal', friendlyFire: !!(opts && opts.friendlyFire) },
     grid: buildGrid(L), bombs: [], fires: [], powerups: [], players: [], monsters: [], projectiles: [], events: [],
@@ -204,7 +207,9 @@ function createLevel(levelIndex, playerInfos, opts, carry) {
     intro: INTRO_TIME, outro: 0, done: null, time: 0, dropRate: 0.5, diff,
     keys: [], switches: [], nest: null, portal: null, boss: null, webs: [],
     cages: [], gems: [], runes: [], runeNext: 1, torches: [], survive: null, goldBrick: null, goldNote: null, magnetT: 0,
+    bossType, stats, bossSay: null, bossDeath: null, snakeBits: [], poofs: [], tips: L.tips || [],
   };
+  if (L.boss) { s.sub = BOSS_TYPES[bossType].name; s.tips = BOSS_TYPES[bossType].tips; }
   // hráči – startují spolu v rohu; statistiky (bomby, plamen…) se přenášejí z minulého levelu
   playerInfos.forEach((info, i) => {
     const [sx, sy] = START_CELLS[i % START_CELLS.length];
@@ -213,7 +218,7 @@ function createLevel(levelIndex, playerInfos, opts, carry) {
     if (old) { p.maxBombs = old.maxBombs; p.fire = old.fire; p.speed = old.speed; p.kick = old.kick; }
     p.respawn = 0; p.grace = GRACE_TIME; p.deaths = 0; p.left = false; p.frozen = 0;
     p.gold = old && old.gold || null;   // zlatá schopnost přetrvává mezi levely
-    s.players.push(p);
+    s.players.push(p); stat(s, p.id);
   });
   const g = s.grid;
   const taken = new Set(START_CELLS.map(([x, y]) => x + ',' + y));
@@ -290,12 +295,8 @@ function createLevel(levelIndex, playerInfos, opts, carry) {
     s.monsters.push(makeMonster(type, x, y, diff.speed * (1 + levelIndex * 0.025)));
   }
   s.newcomers = newcomers(levelIndex, roster);
-  s.intro += (s.newcomers.length + (L.tips || []).length) * 1.3;   // ať je čas si přečíst, co nové příšery a prvky umí
-  if (L.boss) {
-    const [bx, by] = [COLS - 3, ROWS - 3];
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (!isPillar(bx + dx, by + dy)) g[by + dy][bx + dx] = EMPTY;
-    s.boss = { cx: bx, cy: by, x: bx * T + T / 2, y: by * T + T / 2, dir: [0, 1], anim: 0, hp: diff.bossHp, maxHp: diff.bossHp, hitCd: 0, spawnT: 6, shootT: 4, think: 0, path: null, speed: 1.1 * diff.speed, enraged: false, alive: true };
-  }
+  s.intro += (s.newcomers.length + s.tips.length) * 1.3;   // ať je čas si přečíst, co nové příšery a prvky umí
+  if (L.boss) s.boss = createBoss(s, bossType);
   // háčky pro engine.explode
   s.onBrick = (x, y) => { const k = s.keys.find(k => k.cx === x && k.cy === y); if (k) { k.revealed = true; s.events.push('reveal'); return true; }
     const gm = s.gems.find(q => q.cx === x && q.cy === y && !q.revealed); if (gm) { gm.revealed = true; s.events.push('reveal'); return true; }
@@ -337,7 +338,7 @@ function objectiveParts(s) {
     if (part.kind === 'runes') { const done = s.runeNext > s.runes.length; out.push({ text: done ? '🔢 runy ✔' : `🔢 šlápněte na runy popořadě 1→${s.runes.length} (další: ${s.runeNext})`, done }); }
     if (part.kind === 'torches') { const lit = s.torches.filter(t => t.lit > 0).length; out.push({ text: s.torchesDone ? '🔥 pochodně ✔' : `🔥 zapalte bombou všechny pochodně naráz (${lit}/${s.torches.length} hoří)`, done: !!s.torchesDone }); }
     if (part.kind === 'survive') { const t = Math.ceil(s.survive ? s.survive.left : 0); out.push({ text: t > 0 ? `⏱ vydržte ještě ${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}` : '⏱ vydrželi jste ✔', done: t <= 0 }); }
-    if (part.kind === 'boss') { out.push({ text: s.boss && s.boss.alive ? `👹 poraz bosse (${s.boss.hp}/${s.boss.maxHp})` : '👹 boss poražen ✔', done: !s.boss || !s.boss.alive }); }
+    if (part.kind === 'boss') { out.push({ text: bossGoal(s), done: !s.boss || !s.boss.alive }); }
   }
   return out;
 }
@@ -475,13 +476,14 @@ function stepMonsters(s, dt) {
   // oheň zraňuje příšery (ne zahrabaného krtka a žabáka ve skoku)
   for (const f of s.fires) for (const m of s.monsters.slice()) if (m.alive && !m.under && !m.jump && m.hitCd <= 0 && !(m.safeT > 0) && cell(m.x) === f.cx && cell(m.y) === f.cy) {
     m.hp--; m.hitCd = 0.6;
-    if (m.hp <= 0) killMonster(s, m);
+    if (m.hp <= 0) killMonster(s, m, f.owner);
     else { s.events.push('bosshit');
       if (MONSTER_TYPES[m.type].unravels && !m.unraveled) { m.unraveled = true; m.speed *= 1.7; s.events.push('unravel'); } }   // mumie se rozmotá
   }
 }
-function killMonster(s, m) {
+function killMonster(s, m, owner) {
   const t = MONSTER_TYPES[m.type];
+  s.stats.kills++; const st = stat(s, owner); if (st) st.kills++;
   m.alive = false; s.score += Math.round(t.points * (m.small ? 0.5 : 1)) * (s.level + 1); s.events.push('monster');
   if (t.splits && !m.small) {
     // sliz se rozpadne na dva malé, rychlejší, kteří se rozutečou opačnými směry
@@ -512,7 +514,7 @@ function lineClear(s, x0, y0, x1, y1) {
   while (x !== x1 || y !== y1) { if (s.grid[y][x] !== EMPTY) return false; x += dx; y += dy; if (Math.abs(x - x0) + Math.abs(y - y0) > 8) return false; }
   return true;
 }
-function shoot(s, x, y, d, cellsPerSec, kind) { s.projectiles.push({ x, y, dx: d[0], dy: d[1], speed: cellsPerSec * T, life: 3, kind: kind || 'fire' }); s.events.push(kind === 'ice' ? 'snowball' : 'shoot'); }
+function shoot(s, x, y, d, cellsPerSec, kind) { s.projectiles.push({ x, y, dx: d[0], dy: d[1], speed: cellsPerSec * T, life: 3, kind: kind || 'fire' }); s.events.push(kind === 'ice' ? 'snowball' : kind === 'magic' ? 'zap' : 'shoot'); }
 function stepProjectiles(s, dt) {
   for (const pr of s.projectiles) {
     pr.x += pr.dx * pr.speed * dt; pr.y += pr.dy * pr.speed * dt; pr.life -= dt;
@@ -533,46 +535,420 @@ function stepNest(s, dt) {
     const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => [n.cx + dx, n.cy + dy]).filter(([x, y]) => s.grid[y] && s.grid[y][x] === EMPTY);
     if (dirs.length) { const [x, y] = dirs[Math.floor(Math.random() * dirs.length)]; const m = makeMonster(Math.random() < 0.3 ? 'slime' : 'balloon', x, y, s.diff.speed); m.fromNest = true; m.grace = 1; s.monsters.push(m); s.events.push('spawn'); } }
 }
+// ---------- Bossové ----------
+// V Bossově komnatě čeká jeden z pěti bossů (vylosuje se při startu výpravy, nebo ho zvolíte v nastavení).
+// Každý má jiný způsob, jak ho porazit, fázi „zuřivost“ při polovině životů a vlastní hlášky.
+// Pro kreslení (lokálně i po síti) se boss převádí na jednotný „pohled“: seznam částí {k, x, y, dir, anim, flags, n}.
+// flags: 1 právě zasažen · 2 zranitelný · 4 iluze se třpytí · 8 omráčený · 16 nápřah · 32 ležící dvojče · 64 kouzlí · 128 mizí
+const BF = { HIT: 1, VULN: 2, SHIMMER: 4, DAZED: 8, WINDUP: 16, DOWN: 32, CAST: 64, FADE: 128 };
+const BOSS_TYPES = {
+  bombus: { name: 'VELKÝ BOMBUS', short: 'BOMBUS', icon: '👹', hp: { easy: 8, normal: 12, hard: 16 },
+    tips: [{ icon: '💣', name: 'Jak na něj', desc: 'zraňuje ho jen oheň z bomb – boří cihly a volá pomocníky' },
+           { icon: '😡', name: 'Zuřivost', desc: 'v půlce životů zrychlí a začne střílet do čtyř stran' }],
+    say: { start: ['BUM! Tady velím já!', 'Vítejte v mé komnatě, drobečci!'], hit: ['Au! To štípe!', 'Hej! To nebylo fér!', 'Grrr!'],
+      enrage: ['TEĎ UŽ JSEM FAKT NAŠTVANÝ!', 'Kluci, pojďte mi pomoct!'], taunt: ['Chyťte mě, jestli to dokážete!', 'Moje bomby jsou větší!'], down: ['To... není... možné...!'] } },
+  snake: { name: 'HAD SYČOUN', short: 'HAD', icon: '🐍', hp: { easy: 3, normal: 4, hard: 5 },
+    tips: [{ icon: '✂️', name: 'Zkraťte ho', desc: 'oheň ho přesekne – kus těla za zásahem odpadne; had pořád dorůstá' },
+           { icon: '🎯', name: 'Hlava', desc: 'hlava je zranitelná, až když má had nejvýš 2 články (zabliká červeně)' },
+           { icon: '😡', name: 'Zuřivost', desc: 'v půlce životů zrychlí, roste rychleji a plive oheň' }],
+    say: { start: ['Ssssyčím na vás... ssss!', 'Jsssem dlouhý a hladový!'], hit: ['Ssssakra!', 'Moje hlava! Ssss!'],
+      enrage: ['TEĎ VÁS SSSSPOLKNU!', 'Ssssvlékám kůži a jdu na vásss!'], taunt: ['Rosssstu a rosssstu...', 'Ssssmyčka se ssstahuje!'], cut: ['Můj ocásssek!', 'To dorossste!'], down: ['Ssssss...sss...s...'] } },
+  wizard: { name: 'MÁG ILUZÍN', short: 'MÁG', icon: '🧙', hp: { easy: 4, normal: 6, hard: 8 },
+    tips: [{ icon: '🪞', name: 'Iluze', desc: 'vyčaruje své kopie – zranitelný je jen ten pravý, kopie po zásahu prasknou' },
+           { icon: '🔮', name: 'Jak poznat pravého', desc: 'jen pravý kouzlí a střílí; kopie se občas zatřpytí' },
+           { icon: '😡', name: 'Zuřivost', desc: 'v půlce životů se teleportuje častěji a vyvolá duchy' }],
+    say: { start: ['Abraka-BUM! Který z nás je ten pravý?', 'Hokus pokus, už jsem tady... nebo tam?'], hit: ['Jak jste mě poznali?!', 'Au! Moje brada!'],
+      poof: ['Cha! Vedle!', 'To byla jen iluze!', 'Netrefíte se!'], enrage: ['DOST HER! Duchové, ke mně!'], taunt: ['Hádejte, hádejte!', 'Kouzla nikdy nekončí!'], down: ['Moje... kouzla... mizí...'] } },
+  twins: { name: 'DVOJČATA OHNIVÁK A LEDOVÁK', short: 'DVOJČATA', icon: '👯', hp: { easy: 3, normal: 4, hard: 5 },
+    tips: [{ icon: '⏱', name: 'Skoro naráz', desc: 'poražené dvojče se za pár sekund zvedne – musíte porazit oba skoro zároveň' },
+           { icon: '🔥', name: 'Ohnivák a Ledovák', desc: 'jeden střílí oheň, druhý mrazí – kamarád vás rozmrazí dotykem' },
+           { icon: '😡', name: 'Zuřivost', desc: 'když jim zbývá půlka životů, zrychlí a střílejí častěji' }],
+    say: { start: ['My dva jsme nerozluční!', 'Oheň a led – to je náš tým!'], hit: ['Brácho, pomoz!', 'Au! To pálí... nebo mrzne?'],
+      down: ['Vstávej, brácho!', 'Ještě chvilku a jsem zpátky!'], up: ['Zase stojím! Hehe!', 'Nás jen tak nedostanete!'],
+      enrage: ['TEĎ SE ZLOBÍME OBA!'], taunt: ['Dva jsou víc než jeden!'], end: ['Bráško... prohráli jsme...'] } },
+  giant: { name: 'OBR BALVAN', short: 'OBR', icon: '🗿', hp: { easy: 4, normal: 6, hard: 8 },
+    tips: [{ icon: '🪨', name: 'Dupání', desc: 'když zvedne nohu, dupne – ze stropu padá kamení (utečte ze stínů)' },
+           { icon: '💫', name: 'Omráčený', desc: 'zranitelný je jen chvíli po dupnutí, když se mu točí hvězdičky – jinak má kamennou kůži' },
+           { icon: '😡', name: 'Zuřivost', desc: 'v půlce životů dupe častěji a padá víc kamení' }],
+    say: { start: ['DUP! DUP! Kdo mi leze do jeskyně?', 'Jsem velký jako hora!'], hit: ['AU! Kdo to byl?!', 'Moje palec!'],
+      clank: ['Hahaha, to lechtá!', 'Kamennou kůži neprorazíte!'], stomp: ['DUUUP!', 'Pozor na hlavy!'],
+      enrage: ['TEĎ TO TU CELÉ ZBOŘÍM!'], taunt: ['Rozdupu vás na placičku!'], down: ['Já... se... rozsypu...'] } },
+};
+const BOSS_KINDS = Object.keys(BOSS_TYPES);
+function pickBossType(choice) { return BOSS_TYPES[choice] ? choice : BOSS_KINDS[Math.floor(Math.random() * BOSS_KINDS.length)]; }
+const SNAKE_VULN = 3;   // hlava + 2 články
+const BOSS_SAY_TIME = 2.8;
+function bossSay(s, key, force) {
+  const b = s.boss; if (!b) return;
+  const list = (BOSS_TYPES[b.type].say || {})[key]; if (!list || !list.length) return;
+  if (!force && s.bossSay && s.bossSay.t > 1.2) return;   // ať se hlášky nepřekřikují
+  s.bossSay = { text: list[Math.floor(Math.random() * list.length)], t: BOSS_SAY_TIME };
+}
+function bossHp(s, type) { const t = BOSS_TYPES[type]; return t.hp[s.opts.difficulty] || t.hp.normal; }
+function fireNear(s, x, y, r) { return s.fires.find(f => Math.abs(f.cx * T + T / 2 - x) < r && Math.abs(f.cy * T + T / 2 - y) < r); }
+function fireOnCell(s, cx, cy) { return s.fires.find(f => f.cx === cx && f.cy === cy); }
+function touchHurt(s, x, y, r) { for (const p of s.players) if (p.alive && Math.abs(x - p.x) < r && Math.abs(y - p.y) < r) hurtPlayer(s, p); }
+function stat(s, id) { if (id == null) return null; return s.stats.players[id] || (s.stats.players[id] = { deaths: 0, kills: 0, golds: [], hits: 0 }); }
+// společný zásah bosse s jedním ukazatelem životů
+function damageBoss(s, b, owner, x, y) {
+  b.hp = Math.max(0, b.hp - 1); b.hitCd = 0.8; s.events.push('bosshit');
+  const st = stat(s, owner); if (st) st.hits++;
+  if (b.hp <= 0) { defeatBoss(s, b, x, y, owner); return; }
+  if (!b.enraged && b.hp <= b.maxHp / 2) enrageBoss(s, b);
+  else if (Math.random() < 0.6) bossSay(s, 'hit');
+}
+function enrageBoss(s, b) {
+  b.enraged = true; s.events.push('enrage'); bossSay(s, 'enrage', true);
+  if (b.type === 'bombus') b.speed *= 1.5;
+  if (b.type === 'snake') b.stepTime *= 0.75;
+  if (b.type === 'wizard') spawnHelpers(s, b.cx, b.cy, ['ghost', 'ghost'], 6);
+}
+function defeatBoss(s, b, x, y, owner) {
+  b.hp = 0; b.alive = false; s.score += 5000; s.events.push('bossdown');
+  s.stats.lastHit = owner == null ? null : owner;
+  s.bossSay = null; bossSay(s, b.type === 'twins' ? 'end' : 'down', true);
+  s.bossDeath = { x, y, type: b.type };
+  for (const m of s.monsters) m.alive = false; s.projectiles = [];
+  if (b.rocks) b.rocks = [];
+}
+function spawnHelpers(s, cx, cy, kinds, cap) {
+  if (s.monsters.filter(m => m.alive).length >= cap) return;
+  const dirs = DIRS.map(([dx, dy]) => [cx + dx, cy + dy]).filter(([x, y]) => s.grid[y] && s.grid[y][x] === EMPTY && !E.bombAt(s, x, y));
+  for (const kind of kinds) { if (!dirs.length) break; const [x, y] = pickRandom(dirs); const m = makeMonster(kind, x, y, s.diff.speed); m.grace = 1; s.monsters.push(m); }
+  s.events.push('spawn');
+}
+// pohyb po mřížce: pozice x,y se plynule posouvá ke středu políčka cx,cy; choose() vybere další krok
+function gridMove(b, dt, speed, choose) {
+  const gx = b.cx * T + T / 2, gy = b.cy * T + T / 2;
+  if (Math.abs(b.x - gx) < 1.5 && Math.abs(b.y - gy) < 1.5) {
+    b.x = gx; b.y = gy;
+    const next = choose(); if (next) { b.dir = next; b.cx += next[0]; b.cy += next[1]; }
+    return true;
+  }
+  const step = speed * T * dt;
+  b.x += Math.sign(gx - b.x) * Math.min(step, Math.abs(gx - b.x));
+  b.y += Math.sign(gy - b.y) * Math.min(step, Math.abs(gy - b.y));
+  return false;
+}
+// krok k nejbližšímu hráči (BFS po políčkách, kudy smí), jinak náhodně
+function chaseStep(s, b, pass, think) {
+  const target = nearestPlayer(s, b.x, b.y);
+  b.think -= think || 0;
+  if (target && (b.think <= 0 || !b.path)) { b.think = 0.6; const tx = cell(target.x), ty = cell(target.y);
+    const path = bfsPath(s, b.cx, b.cy, (x, y) => x === tx && y === ty, (x, y) => pass(x, y) || (x === tx && y === ty));
+    b.path = path && path.length > 1 ? path.slice(1) : null; }
+  if (b.path && b.path.length) { const [nx, ny] = b.path[0]; if (pass(nx, ny)) { b.path.shift(); return [nx - b.cx, ny - b.cy]; } b.path = null; }
+  const dirs = DIRS.filter(([dx, dy]) => pass(b.cx + dx, b.cy + dy));
+  return dirs.length ? dirs[Math.floor(Math.random() * dirs.length)] : null;
+}
+function inLineShot(s, cx, cy, maxDist) {
+  // hráč ve stejném řádku/sloupci s volným výhledem → směr výstřelu
+  for (const p of s.players) if (p.alive) { const tx = cell(p.x), ty = cell(p.y);
+    if ((tx === cx || ty === cy) && !(tx === cx && ty === cy) && Math.abs(tx - cx) + Math.abs(ty - cy) <= (maxDist || 8) && lineClear(s, cx, cy, tx, ty)) return [Math.sign(tx - cx), Math.sign(ty - cy)]; }
+  return null;
+}
+function emptyCellsAwayFromPlayers(s, minDist) {
+  const out = [];
+  for (let y = 1; y < ROWS - 1; y++) for (let x = 1; x < COLS - 1; x++)
+    if (s.grid[y][x] === EMPTY && !E.bombAt(s, x, y) && s.players.every(p => !p.alive || Math.abs(cell(p.x) - x) + Math.abs(cell(p.y) - y) >= minDist)) out.push([x, y]);
+  return out;
+}
+
+function createBoss(s, type) {
+  const hp = bossHp(s, type), g = s.grid, sp = s.diff.speed;
+  const clear = (x, y) => { if (g[y] && g[y][x] === BRICK) g[y][x] = EMPTY; };
+  const base = { type, hp, maxHp: hp, hitCd: 0, enraged: false, alive: true, anim: 0, think: 0, path: null, dir: [0, 1], tauntT: 10 + Math.random() * 4 };
+  if (type === 'snake') {
+    // hlava vlevo, tělo se táhne doprava po spodní řadě (lichá řada = žádné pilíře)
+    const y = ROWS - 2, segs = [];
+    for (let i = 0; i < 8; i++) { const x = 5 + i; clear(x, y); segs.push({ cx: x, cy: y, px: x, py: y, x: x * T + T / 2, y: y * T + T / 2 }); }
+    return { ...base, segs, moveT: 0, stepTime: 1 / (2.0 * sp), growT: 3, grow: 0, maxLen: 14, stuck: 0, spitT: 3, clankT: 0, dir: [-1, 0] };
+  }
+  const bx = COLS - 3, by = ROWS - 3;
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (!isPillar(bx + dx, by + dy)) g[by + dy][bx + dx] = EMPTY;
+  const at = (cx, cy) => ({ cx, cy, x: cx * T + T / 2, y: cy * T + T / 2 });
+  if (type === 'wizard') {
+    const b = { ...base, ...at(bx, by), tpT: 1.0, castT: 0, shootT: 2, wanderT: 0, fade: 0, illusions: [], clankT: 0 };
+    return b;
+  }
+  if (type === 'twins') {
+    const twin = (k, cx, cy) => ({ k, ...at(cx, cy), dir: [0, 1], anim: Math.random() * 6, hp, maxHp: hp, down: 0, think: 0, path: null, shootT: 2 + Math.random(), hitCd: 0 });
+    const t2 = [COLS - 2, ROWS - 4]; clear(t2[0], t2[1]); clear(COLS - 2, ROWS - 2);
+    return { ...base, hp: hp * 2, maxHp: hp * 2, twins: [twin('fire', bx, by), twin('ice', COLS - 2, ROWS - 2)],
+      window: { easy: 8, normal: 6, hard: 4.5 }[s.opts.difficulty] || 6 };
+  }
+  if (type === 'giant') {
+    return { ...base, ...at(bx, by), speed: 0.85 * sp, phase: 'walk', phaseT: 0, stompT: 4, rocks: [], clankT: 0,
+      daze: { easy: 3.6, normal: 3.1, hard: 2.7 }[s.opts.difficulty] || 3.1 };
+  }
+  // Velký Bombus
+  return { ...base, ...at(bx, by), spawnT: 6, shootT: 4, speed: 1.1 * sp };
+}
+
 function stepBoss(s, dt) {
   const b = s.boss; if (!b || !b.alive) return;
-  b.anim += dt * 5; b.hitCd -= dt; b.spawnT -= dt; b.shootT -= dt; b.think -= dt;
-  const gx = b.cx * T + T / 2, gy = b.cy * T + T / 2;
-  const atCenter = Math.abs(b.x - gx) < 1.5 && Math.abs(b.y - gy) < 1.5;
-  if (atCenter) {
-    b.x = gx; b.y = gy;
+  b.anim += dt * 5; b.hitCd -= dt;
+  if (s.bossSay) { s.bossSay.t -= dt; if (s.bossSay.t <= 0) s.bossSay = null; }
+  if (!b.greeted) { b.greeted = true; bossSay(s, 'start', true); }
+  b.tauntT -= dt; if (b.tauntT <= 0) { b.tauntT = 11 + Math.random() * 6; bossSay(s, 'taunt'); }
+  ({ bombus: stepBombus, snake: stepSnake, wizard: stepWizard, twins: stepTwins, giant: stepGiant })[b.type](s, b, dt);
+}
+
+// --- Velký Bombus: boří cihly, volá pomocníky, v zuřivosti střílí do čtyř stran ---
+function stepBombus(s, b, dt) {
+  b.spawnT -= dt; b.shootT -= dt; b.think -= dt;
+  const atCenter = gridMove(b, dt, b.speed, () => {
     s.grid[b.cy][b.cx] = EMPTY;              // boss buldozeruje cihly
-    const target = nearestPlayer(s, b.x, b.y);
-    if (b.think <= 0 && target) { b.think = 0.6; const tx = cell(target.x), ty = cell(target.y);
-      const path = bfsPath(s, b.cx, b.cy, (x, y) => x === tx && y === ty, (x, y) => s.grid[y][x] !== WALL);
-      b.path = path && path.length > 1 ? path.slice(1) : null; }
-    let next = null;
-    if (b.path && b.path.length) { const [nx, ny] = b.path.shift(); if (s.grid[ny][nx] !== WALL) next = [nx - b.cx, ny - b.cy]; }
-    if (!next) { const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dy]) => s.grid[b.cy + dy] && s.grid[b.cy + dy][b.cx + dx] !== WALL && s.grid[b.cy + dy][b.cx + dx] !== undefined);
-      if (dirs.length) next = dirs[Math.floor(Math.random() * dirs.length)]; }
-    if (next) { b.dir = next; b.cx += next[0]; b.cy += next[1]; }
-  } else {
-    const step = b.speed * T * dt;
-    b.x += Math.sign(gx - b.x) * Math.min(step, Math.abs(gx - b.x));
-    b.y += Math.sign(gy - b.y) * Math.min(step, Math.abs(gy - b.y));
-  }
-  // dotyk zabíjí
-  for (const p of s.players) if (p.alive && Math.abs(b.x - p.x) < T * 0.8 && Math.abs(b.y - p.y) < T * 0.8) hurtPlayer(s, p);
-  // zásah ohněm (jen pokud není chvíli po zásahu)
-  if (b.hitCd <= 0) for (const f of s.fires) if (Math.abs(f.cx * T + T / 2 - b.x) < T * 0.9 && Math.abs(f.cy * T + T / 2 - b.y) < T * 0.9) {
-    b.hp--; b.hitCd = 0.8; s.events.push('bosshit');
-    if (!b.enraged && b.hp <= b.maxHp / 2) { b.enraged = true; b.speed *= 1.5; s.events.push('enrage'); }
-    if (b.hp <= 0) { b.hp = 0; b.alive = false; s.score += 5000; s.events.push('bossdown'); for (const m of s.monsters) m.alive = false; s.projectiles = []; }
-    break;
-  }
-  // fáze 1: volá pomocníky; fáze 2 (zuřivost): navíc střílí do čtyř stran
+    return chaseStep(s, b, (x, y) => s.grid[y] && s.grid[y][x] !== undefined && s.grid[y][x] !== WALL && s.grid[y][x] < NEST);
+  });
+  touchHurt(s, b.x, b.y, T * 0.8);
+  if (b.hitCd <= 0) { const f = fireNear(s, b.x, b.y, T * 0.9); if (f) damageBoss(s, b, f.owner, b.x, b.y); }
+  if (!b.alive) return;
   const helpers = s.monsters.filter(m => m.alive).length;
   if (b.spawnT <= 0 && helpers < (b.enraged ? 5 : 4)) { b.spawnT = b.enraged ? 6 : 8;
-    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => [b.cx + dx, b.cy + dy]).filter(([x, y]) => s.grid[y] && s.grid[y][x] === EMPTY);
-    for (let i = 0; i < 2 && dirs.length; i++) { const [x, y] = pickRandom(dirs); const kind = b.enraged ? (s.diff === DIFFICULTIES.hard ? 'hunter' : pickRandom(['frog', 'slime', 'balloon'])) : pickRandom(['balloon', 'balloon', 'frog']);
-      const m = makeMonster(kind, x, y, s.diff.speed); m.grace = 1; s.monsters.push(m); }
-    s.events.push('spawn'); }
-  if (b.enraged && b.shootT <= 0 && atCenter) { b.shootT = 3.2; for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) shoot(s, b.x, b.y, d, 4); }
+    const kinds = [0, 1].map(() => b.enraged ? (s.diff === DIFFICULTIES.hard ? 'hunter' : ['frog', 'slime', 'balloon'][Math.floor(Math.random() * 3)]) : ['balloon', 'balloon', 'frog'][Math.floor(Math.random() * 3)]);
+    spawnHelpers(s, b.cx, b.cy, kinds, 99); }
+  if (b.enraged && b.shootT <= 0 && atCenter) { b.shootT = 3.2; for (const d of DIRS) shoot(s, b.x, b.y, d, 4); }
 }
+
+// --- Had: články se plazí po políčkách; oheň had přesekne, hlava je zranitelná jen u krátkého hada ---
+function snakeFree(s, b, x, y) {
+  if (!s.grid[y] || s.grid[y][x] !== EMPTY || E.bombAt(s, x, y)) return false;
+  // do vlastního těla nesmí (kromě ocasu, který se právě posune – pokud neroste)
+  const n = b.segs.length - (b.grow > 0 ? 0 : 1);
+  for (let i = 0; i < n; i++) if (b.segs[i].cx === x && b.segs[i].cy === y) return false;
+  return true;
+}
+function stepSnake(s, b, dt) {
+  b.clankT -= dt; b.spitT -= dt;
+  // růst: přibývá článek na konci ocasu
+  b.growT -= dt;
+  if (b.growT <= 0) { b.growT = ({ easy: 4.6, normal: 3.6, hard: 2.8 }[s.opts.difficulty] || 3.6) * (b.enraged ? 0.7 : 1);
+    if (b.segs.length + b.grow < b.maxLen) { b.grow++; s.events.push('grow'); } }
+  b.moveT += dt;
+  if (b.moveT >= b.stepTime) {
+    b.moveT -= b.stepTime; if (b.moveT > b.stepTime) b.moveT = 0;
+    const h = b.segs[0]; const pass = (x, y) => snakeFree(s, b, x, y);
+    // hlava míří k nejbližšímu hráči, ale nepůjde zpátky do sebe
+    const target = nearestPlayer(s, h.cx * T + T / 2, h.cy * T + T / 2);
+    let next = null;
+    if (target) { const tx = cell(target.x), ty = cell(target.y);
+      const path = bfsPath(s, h.cx, h.cy, (x, y) => x === tx && y === ty, (x, y) => pass(x, y) || (x === tx && y === ty && s.grid[y][x] === EMPTY));
+      if (path && path.length > 1 && pass(path[1][0], path[1][1])) next = [path[1][0] - h.cx, path[1][1] - h.cy]; }
+    if (!next) { const dirs = DIRS.filter(([dx, dy]) => pass(h.cx + dx, h.cy + dy));
+      const fwd = dirs.find(d => d[0] === b.dir[0] && d[1] === b.dir[1]);
+      next = fwd && Math.random() < 0.6 ? fwd : dirs.length ? dirs[Math.floor(Math.random() * dirs.length)] : null; }
+    for (const g of b.segs) { g.px = g.cx; g.py = g.cy; }
+    if (next) {
+      b.stuck = 0; b.dir = next;
+      const tail = b.segs[b.segs.length - 1], old = { cx: tail.cx, cy: tail.cy };
+      for (let i = b.segs.length - 1; i > 0; i--) { b.segs[i].cx = b.segs[i - 1].cx; b.segs[i].cy = b.segs[i - 1].cy; }
+      h.cx += next[0]; h.cy += next[1];
+      if (b.grow > 0) { b.grow--; b.segs.push({ cx: old.cx, cy: old.cy, px: old.cx, py: old.cy, x: old.cx * T + T / 2, y: old.cy * T + T / 2 }); }
+    } else if (++b.stuck >= 3 && b.segs.length > 1) {   // zaseknutý had se otočí – z ocasu je hlava
+      b.segs.reverse(); b.stuck = 0; const a = b.segs[0], c = b.segs[1]; b.dir = [a.cx - c.cx, a.cy - c.cy];
+    }
+  }
+  // plynulá poloha článků (mezi minulým a novým políčkem)
+  const k = Math.min(1, b.moveT / b.stepTime);
+  for (const g of b.segs) { g.x = (g.px + (g.cx - g.px) * k) * T + T / 2; g.y = (g.py + (g.cy - g.py) * k) * T + T / 2; }
+  const head = b.segs[0]; b.x = head.x; b.y = head.y; b.cx = head.cx; b.cy = head.cy;
+  for (const g of b.segs) touchHurt(s, g.x, g.y, T * 0.6);
+  // oheň: přesekne tělo v nejbližším zasaženém článku; hlavu zraní, jen když je had krátký
+  let cutAt = -1, headFire = null;
+  for (let i = 0; i < b.segs.length; i++) { const g = b.segs[i]; const f = fireOnCell(s, g.cx, g.cy);
+    if (!f) continue; if (i === 0) headFire = f; else { cutAt = i; break; } }
+  if (cutAt > 0) {
+    const fallen = b.segs.splice(cutAt);
+    s.score += 60 * fallen.length; s.events.push('cut'); if (fallen.length >= 3 || Math.random() < 0.5) bossSay(s, 'cut');
+    s.snakeBits = (s.snakeBits || []).concat(fallen.map(g => [Math.round(g.x), Math.round(g.y)]));
+    // z velkého useknutého kusu se občas vyklube malý sliz
+    if (fallen.length >= 4 && s.monsters.filter(m => m.alive).length < 4) { const g = fallen[Math.floor(fallen.length / 2)];
+      if (s.grid[g.cy][g.cx] === EMPTY) { const m = makeMonster('slime', g.cx, g.cy, s.diff.speed); m.small = true; m.grace = 1; m.hitCd = 1; s.monsters.push(m); } }
+  }
+  if (headFire && b.hitCd <= 0) {
+    if (b.segs.length <= SNAKE_VULN) {
+      damageBoss(s, b, headFire.owner, head.x, head.y); b.hitCd = 1.0;
+      if (b.alive) b.grow += 2;   // vzteky se natáhne – zase ho musíte zkrátit
+    } else if (b.clankT <= 0) { b.clankT = 0.6; s.events.push('clank'); }
+  }
+  if (!b.alive) return;
+  // v zuřivosti plive oheň dopředu, když hráče vidí
+  if (b.enraged && b.spitT <= 0) { const d = inLineShot(s, head.cx, head.cy, 6);
+    if (d && d[0] === b.dir[0] && d[1] === b.dir[1]) { shoot(s, head.x, head.y, d, 4.5); b.spitT = 3; } }
+}
+
+// --- Mág: teleportuje se a vyčarovává iluze; zranitelný je jen pravý ---
+function wizardIllusionCount(s, b) { return ({ easy: 2, normal: 3, hard: 4 }[s.opts.difficulty] || 3) + (b.enraged ? 1 : 0); }
+function wizardTeleport(s, b) {
+  const cands = emptyCellsAwayFromPlayers(s, 4); const all = cands.length >= 2 ? cands : emptyCellsAwayFromPlayers(s, 2);
+  const n = wizardIllusionCount(s, b) + 1;
+  const spots = []; while (spots.length < n && all.length) spots.push(pickRandom(all));
+  if (!spots.length) return;
+  const [rx, ry] = spots.shift(); b.cx = rx; b.cy = ry; b.x = rx * T + T / 2; b.y = ry * T + T / 2; b.path = null; b.appear = 0.5;
+  b.illusions = spots.map(([x, y]) => ({ cx: x, cy: y, x: x * T + T / 2, y: y * T + T / 2, dir: [0, 1], anim: Math.random() * 6, shimT: 1 + Math.random() * 3, shim: 0, wanderT: Math.random(), appear: 0.5 }));
+  b.tpT = ({ easy: 6.5, normal: 5.5, hard: 4.5 }[s.opts.difficulty] || 5.5) * (b.enraged ? 0.7 : 1);
+  s.events.push('teleport');
+}
+function wizardWander(s, w, dt, speed) {
+  w.wanderT -= dt;
+  gridMove(w, dt, speed, () => {
+    if (w.wanderT > 0) return null;
+    w.wanderT = 0.6 + Math.random() * 1.2;
+    const dirs = DIRS.filter(([dx, dy]) => s.grid[w.cy + dy] && s.grid[w.cy + dy][w.cx + dx] === EMPTY && !E.bombAt(s, w.cx + dx, w.cy + dy));
+    return dirs.length && Math.random() < 0.7 ? dirs[Math.floor(Math.random() * dirs.length)] : null;
+  });
+}
+function stepWizard(s, b, dt) {
+  b.tpT -= dt; b.castT -= dt; b.shootT -= dt; b.clankT -= dt; b.appear = Math.max(0, (b.appear || 0) - dt);
+  if (b.fade > 0) { b.fade -= dt; if (b.fade <= 0) wizardTeleport(s, b); return; }   // mizí – za chvilku se objeví jinde
+  if (b.tpT <= 0) { b.fade = 0.5; s.events.push('vanish'); return; }
+  if (b.wanderT === undefined) b.wanderT = 0;
+  wizardWander(s, b, dt, 1.0 * s.diff.speed);
+  for (const il of b.illusions) { il.anim += dt * 5; il.appear = Math.max(0, il.appear - dt); il.shimT -= dt;
+    if (il.shimT <= 0) { il.shim = 0.35; il.shimT = 2 + Math.random() * 2.5; } il.shim = Math.max(0, il.shim - dt);
+    wizardWander(s, il, dt, 1.0 * s.diff.speed); }
+  // jen pravý kouzlí: nápřah s holí a pak magická střela po řádku/sloupci
+  if (b.shootT <= 0) { const d = inLineShot(s, b.cx, b.cy, 9);
+    if (d) { b.castT = 0.5; b.dir = d; b.shootT = s.diff.shootEvery * (b.enraged ? 0.8 : 1.1); b.pending = d; } else b.shootT = 0.4; }
+  if (b.pending && b.castT <= 0) { shoot(s, b.x, b.y, b.pending, 5, 'magic'); b.pending = null; }
+  touchHurt(s, b.x, b.y, T * 0.6);
+  // dotyk iluze = prasknutí (neškodí)
+  b.illusions = b.illusions.filter(il => { const hit = s.players.some(p => p.alive && Math.abs(il.x - p.x) < T * 0.6 && Math.abs(il.y - p.y) < T * 0.6) || fireOnCell(s, cell(il.x), cell(il.y));
+    if (hit) { s.events.push('poof'); s.poofs = (s.poofs || []).concat([[Math.round(il.x), Math.round(il.y)]]); bossSay(s, 'poof'); }
+    return !hit; });
+  if (b.hitCd <= 0 && b.appear <= 0) { const f = fireOnCell(s, cell(b.x), cell(b.y));
+    if (f) { damageBoss(s, b, f.owner, b.x, b.y); if (b.alive) { b.tpT = Math.min(b.tpT, 0.7); b.pending = null; } } }
+}
+
+// --- Dvojčata: poražené dvojče se po chvíli zvedne – musí padnout oba skoro naráz ---
+function stepTwins(s, b, dt) {
+  const sp = 1.55 * s.diff.speed * (b.enraged ? 1.3 : 1);
+  for (const w of b.twins) {
+    w.anim += dt * 5; w.hitCd -= dt; w.shootT -= dt; w.think -= dt;
+    if (w.down > 0) {
+      w.down -= dt;
+      if (w.down <= 0) { w.down = 0; w.hp = Math.ceil(w.maxHp / 2); w.hitCd = 1; s.events.push('twinup'); bossSay(s, 'up', true); }
+      continue;
+    }
+    const mate = b.twins.find(o => o !== w);
+    gridMove(w, dt, sp, () => {
+      // každé dvojče jde po jiném hráči (když jsou aspoň dva), ať vás obklíčí
+      const alive = s.players.filter(p => p.alive);
+      let target = nearestPlayer(s, w.x, w.y);
+      if (alive.length > 1 && w.k === 'ice') target = alive.slice().sort((p, q) => (Math.abs(q.x - w.x) + Math.abs(q.y - w.y)) - (Math.abs(p.x - w.x) + Math.abs(p.y - w.y)))[0];
+      const pass = (x, y) => s.grid[y] && s.grid[y][x] === EMPTY && !E.bombAt(s, x, y) && !(mate.cx === x && mate.cy === y && mate.down <= 0);
+      if (target && w.think <= 0) { w.think = 0.6; const tx = cell(target.x), ty = cell(target.y);
+        const path = bfsPath(s, w.cx, w.cy, (x, y) => x === tx && y === ty, (x, y) => pass(x, y) || (x === tx && y === ty));
+        w.path = path && path.length > 1 ? path.slice(1) : null; }
+      if (w.path && w.path.length) { const [nx, ny] = w.path[0]; if (pass(nx, ny)) { w.path.shift(); return [nx - w.cx, ny - w.cy]; } w.path = null; }
+      const dirs = DIRS.filter(([dx, dy]) => pass(w.cx + dx, w.cy + dy));
+      return dirs.length ? dirs[Math.floor(Math.random() * dirs.length)] : null;
+    });
+    if (w.shootT <= 0) { const d = inLineShot(s, cell(w.x), cell(w.y), 7);
+      if (d) { w.dir = d; shoot(s, w.x, w.y, d, w.k === 'ice' ? 4 : 4.5, w.k === 'ice' ? 'ice' : 'fire'); w.shootT = s.diff.shootEvery * (b.enraged ? 0.75 : 1.05); } else w.shootT = 0.3; }
+    touchHurt(s, w.x, w.y, T * 0.6);
+    if (w.hitCd <= 0) { const f = fireNear(s, w.x, w.y, T * 0.6);
+      if (f) { w.hp--; w.hitCd = 0.7; s.events.push('bosshit'); const st = stat(s, f.owner); if (st) st.hits++;
+        if (w.hp <= 0) { w.hp = 0; w.down = b.window; w.path = null; s.events.push('twindown');
+          if (b.twins.every(o => o.down > 0)) { b.hp = 0; defeatBoss(s, b, (b.twins[0].x + b.twins[1].x) / 2, (b.twins[0].y + b.twins[1].y) / 2, f.owner); return; }
+          bossSay(s, 'down', true); }
+        else if (Math.random() < 0.5) bossSay(s, 'hit'); } }
+  }
+  b.hp = b.twins.reduce((a, w) => a + w.hp, 0);
+  if (!b.enraged && b.hp <= b.maxHp / 2) enrageBoss(s, b);
+}
+
+// --- Obr: dupne, ze stropu padá kamení; zranitelný jen chvíli po dupnutí (omráčený) ---
+function stepGiant(s, b, dt) {
+  b.clankT -= dt; b.phaseT -= dt; b.think -= dt;
+  // padající kamení: stín na zemi, po dopadu zraní a z kamene je cihla
+  for (const r of b.rocks) { r.t -= dt; if (r.t <= 0) {
+    s.events.push('rock');
+    for (const p of s.players) if (p.alive && cell(p.x) === r.cx && cell(p.y) === r.cy) hurtPlayer(s, p);
+    const busy = E.bombAt(s, r.cx, r.cy) || s.powerups.some(u => u.cx === r.cx && u.cy === r.cy) || s.players.some(p => p.alive && cell(p.x) === r.cx && cell(p.y) === r.cy)
+      || Math.abs(r.cx - b.cx) + Math.abs(r.cy - b.cy) <= 1;
+    let bricks = 0; for (const row of s.grid) for (const v of row) if (v === BRICK) bricks++;
+    if (!busy && s.grid[r.cy][r.cx] === EMPTY && bricks < 40) s.grid[r.cy][r.cx] = BRICK;
+  } }
+  b.rocks = b.rocks.filter(r => r.t > 0);
+  if (b.phase === 'walk') {
+    b.stompT -= dt;
+    const atCenter = gridMove(b, dt, b.speed * (b.enraged ? 1.25 : 1), () => {
+      s.grid[b.cy][b.cx] = EMPTY;            // obr šlape přes cihly
+      if (b.stompT <= 0) return null;
+      return chaseStep(s, b, (x, y) => s.grid[y] && s.grid[y][x] !== undefined && s.grid[y][x] !== WALL && s.grid[y][x] < NEST && !E.bombAt(s, x, y));
+    });
+    if (atCenter && b.stompT <= 0) { b.phase = 'windup'; b.phaseT = 1.0; s.events.push('windup'); }
+  } else if (b.phase === 'windup') {
+    if (b.phaseT <= 0) {
+      b.phase = 'dazed'; b.phaseT = b.daze; s.events.push('stomp'); bossSay(s, 'stomp');
+      // kamení míří hlavně na hráče a kolem nich
+      const n = ({ easy: 4, normal: 5, hard: 6 }[s.opts.difficulty] || 5) + (b.enraged ? 2 : 0);
+      const cands = []; for (let y = 1; y < ROWS - 1; y++) for (let x = 1; x < COLS - 1; x++) if (s.grid[y][x] === EMPTY && Math.abs(x - b.cx) + Math.abs(y - b.cy) > 1) cands.push([x, y]);
+      const picks = [];
+      for (const p of s.players) if (p.alive) { const px = cell(p.x), py = cell(p.y); const near = cands.filter(([x, y]) => Math.abs(x - px) + Math.abs(y - py) <= 1);
+        if (near.length) picks.push(near.find(([x, y]) => x === px && y === py) || near[0]); }
+      while (picks.length < n && cands.length) { const c = pickRandom(cands); if (!picks.some(q => q[0] === c[0] && q[1] === c[1])) picks.push(c); }
+      b.rocks = b.rocks.concat(picks.slice(0, n + 2).map(([x, y], i) => ({ cx: x, cy: y, t: 1.1 + i * 0.12 })));
+    }
+  } else if (b.phase === 'dazed') {
+    if (b.phaseT <= 0) { b.phase = 'walk'; b.stompT = ({ easy: 7, normal: 6, hard: 5 }[s.opts.difficulty] || 6) * (b.enraged ? 0.7 : 1); }
+  }
+  if (b.phase !== 'dazed') touchHurt(s, b.x, b.y, T * 0.8);   // omráčený obr nikoho nezraní – běžte k němu!
+  const f = fireNear(s, b.x, b.y, T * 0.9);
+  if (f) {
+    if (b.phase === 'dazed') { if (b.hitCd <= 0) damageBoss(s, b, f.owner, b.x, b.y); }
+    else if (b.clankT <= 0) { b.clankT = 0.7; s.events.push('clank'); if (Math.random() < 0.5) bossSay(s, 'clank'); }
+  }
+}
+
+// body, kde boss zraňuje (pro bezpečné oživení)
+function bossDanger(s) {
+  const b = s.boss; if (!b || !b.alive) return [];
+  if (b.type === 'snake') return b.segs.map(g => [g.cx * T + T / 2, g.cy * T + T / 2]);
+  if (b.type === 'twins') return b.twins.filter(w => w.down <= 0).map(w => [w.x, w.y]);
+  if (b.type === 'giant') return [[b.x, b.y], ...b.rocks.map(r => [r.cx * T + T / 2, r.cy * T + T / 2])];
+  return [[b.x, b.y]];
+}
+function bossGoal(s) {
+  const b = s.boss; if (!b) return '';
+  if (!b.alive) return '👹 boss poražen ✔';
+  const t = BOSS_TYPES[b.type];
+  if (b.type === 'snake') return `${t.icon} ${b.segs.length > SNAKE_VULN ? `zkraťte hada (${b.segs.length} článků)` : 'TEĎ! zasáhněte hlavu'} · hlava ${b.hp}/${b.maxHp}`;
+  if (b.type === 'wizard') return `${t.icon} najděte pravého mága (${b.hp}/${b.maxHp})`;
+  if (b.type === 'twins') return `${t.icon} porazte obě dvojčata naráz (🔥 ${b.twins[0].hp} · ❄ ${b.twins[1].hp})`;
+  if (b.type === 'giant') return `${t.icon} ${b.phase === 'dazed' ? 'TEĎ! obr je omráčený' : 'počkejte, až dupne, a pak ho odpalte'} (${b.hp}/${b.maxHp})`;
+  return `${t.icon} poraz bosse (${b.hp}/${b.maxHp})`;
+}
+// jednotný pohled na bosse pro kreslení: části v pevném pořadí (u mága seřazené podle polohy, ať se pravý nepozná)
+function bossView(s) {
+  const b = s.boss; if (!b || !b.alive) return null;
+  const P = (k, x, y, dir, anim, flags, n) => [k, Math.round(x), Math.round(y), dir[0], dir[1], +(anim || 0).toFixed(1), flags | 0, n || 0];
+  const hit = b.hitCd > 0.5 ? BF.HIT : 0;
+  let parts = [], ex = {};
+  if (b.type === 'snake') {
+    const vuln = b.segs.length <= SNAKE_VULN ? BF.VULN : 0;
+    b.segs.forEach((g, i) => { const nxt = b.segs[i - 1] || null; const d = i === 0 ? b.dir : [Math.sign(nxt.x - g.x), Math.sign(nxt.y - g.y)];
+      parts.push(P(i === 0 ? 'head' : i === b.segs.length - 1 ? 'tail' : 'seg', g.x, g.y, d, b.anim + i * 0.7, (i === 0 ? hit | vuln : 0), i)); });
+  } else if (b.type === 'wizard') {
+    if (b.fade > 0) parts.push(P('wizard', b.x, b.y, b.dir, b.anim, BF.FADE | hit));
+    else {
+      parts.push(P('wizard', b.x, b.y, b.dir, b.anim, hit | (b.castT > 0 ? BF.CAST : 0) | (b.appear > 0 ? BF.FADE : 0)));
+      for (const il of b.illusions) parts.push(P('wizard', il.x, il.y, il.dir, il.anim, (il.shim > 0 ? BF.SHIMMER : 0) | (il.appear > 0 ? BF.FADE : 0)));
+      parts.sort((p, q) => p[2] - q[2] || p[1] - q[1]);
+    }
+  } else if (b.type === 'twins') {
+    for (const w of b.twins) parts.push(P(w.k, w.x, w.y, w.dir, w.anim, (w.hitCd > 0.4 ? BF.HIT : 0) | (w.down > 0 ? BF.DOWN : 0), w.down > 0 ? Math.ceil(w.down) : w.hp));
+    ex.th = b.twins.map(w => w.hp); ex.tm = b.twins[0].maxHp;
+  } else if (b.type === 'giant') {
+    parts.push(P('giant', b.x, b.y, b.dir, b.anim, hit | (b.phase === 'dazed' ? BF.DAZED | BF.VULN : 0) | (b.phase === 'windup' ? BF.WINDUP : 0), b.phase === 'dazed' ? Math.ceil(b.phaseT) : 0));
+    ex.rk = b.rocks.map(r => [r.cx, r.cy, +r.t.toFixed(2)]);
+  } else parts.push(P('bombus', b.x, b.y, b.dir, b.anim, hit));
+  return { type: b.type, hp: b.hp, maxHp: b.maxHp, enraged: b.enraged ? 1 : 0, parts, ex };
+}
+function bossFromArr(a) { return a && { type: a.type, hp: a.hp, maxHp: a.maxHp, enraged: !!a.enraged, alive: true, ex: a.ex || {},
+  parts: a.parts.map(p => ({ k: p[0], x: p[1], y: p[2], dir: [p[3], p[4]], anim: p[5], flags: p[6], n: p[7] })) }; }
 
 // ---------- Hráči: oživení, spínače, klíče, portál ----------
 function stepTeam(s, dt) {
@@ -635,7 +1011,7 @@ function stepGoldPickup(s) {
     const i = s.powerups.findIndex(u => u.kind === 'gold' && u.cx === cell(p.x) && u.cy === cell(p.y));
     if (i < 0) continue;
     const u = s.powerups.splice(i, 1)[0];
-    setGold(s, p, u.gold); s.score += 500;
+    setGold(s, p, u.gold); s.score += 500; stat(s, p.id).golds.push(u.gold);
     s.goldNote = { id: p.id, kind: u.gold, t: GOLD_NOTE_TIME }; s.events.push('gold');
   }
 }
@@ -699,7 +1075,7 @@ function stepRevivePickup(s) {
   }
 }
 function onDeath(s, p) {
-  p.deaths++; s.deaths++;
+  p.deaths++; s.deaths++; stat(s, p.id).deaths++;
   setGold(s, p, null);   // zlatá schopnost se smrtí ztrácí
   p.respawn = respawnTime(p.deaths);   // vždy se vrátí, jen čeká déle a déle
 }
@@ -708,7 +1084,7 @@ function safeCell(s, x, y) {
   if (!s.grid[y] || s.grid[y][x] !== EMPTY || E.bombAt(s, x, y) || s.fires.some(f => f.cx === x && f.cy === y)) return false;
   const px = x * T + T / 2, py = y * T + T / 2;
   if (s.monsters.some(m => m.alive && Math.abs(m.x - px) < T * 2 && Math.abs(m.y - py) < T * 2)) return false;
-  if (s.boss && s.boss.alive && Math.abs(s.boss.x - px) < T * 3 && Math.abs(s.boss.y - py) < T * 3) return false;
+  if (bossDanger(s).some(([bx, by]) => Math.abs(bx - px) < T * 3 && Math.abs(by - py) < T * 3)) return false;
   if (s.projectiles.some(pr => Math.abs(pr.x - px) < T * 2 && Math.abs(pr.y - py) < T * 2)) return false;
   return true;
 }
@@ -730,10 +1106,10 @@ function revive(s, p) {
 // ---------- Hlavní krok ----------
 // inputs: { [playerId]: {dx, dy, bomb} } → null, nebo { done: 'level' | 'won' } (až po dohrání „outra“)
 function step(s, inputs, dt) {
-  s.events = [];
-  if (s.done) { s.outro -= dt; return s.outro <= 0 ? { done: s.done } : null; }
+  s.events = []; s.snakeBits = []; s.poofs = [];
+  if (s.done) { s.outro -= dt; if (s.bossSay) { s.bossSay.t -= dt; if (s.bossSay.t <= 0) s.bossSay = null; } return s.outro <= 0 ? { done: s.done } : null; }
   if (s.intro > 0) { s.intro -= dt; return null; }
-  s.time += dt;
+  s.time += dt; s.stats.time += dt;
   const aliveBefore = s.players.map(p => p.alive);
   // zmrzlý hráč se nehýbe ani nepokládá bomby; v pavučině jde pomalu
   const inp = {}, speeds = s.players.map(p => p.speed);
@@ -761,7 +1137,7 @@ function step(s, inputs, dt) {
   stepBoss(s, dt);
   const result = stepTeam(s, dt);
   s.players.forEach((p, i) => { if (aliveBefore[i] && !p.alive) onDeath(s, p); });
-  if (result) { s.done = result; s.outro = OUTRO_TIME; s.score += result === 'level' ? 1000 * (s.level + 1) : 0; s.events.push(result === 'won' ? 'victory' : 'levelup'); return null; }
+  if (result) { s.done = result; s.outro = result === 'won' ? OUTRO_WON : OUTRO_TIME; s.score += result === 'level' ? 1000 * (s.level + 1) : 0; s.events.push(result === 'won' ? 'victory' : 'levelup'); return null; }
   // Konec výpravy neexistuje: i když padnou všichni naráz, každý jen čeká na své oživení.
   return null;
 }
@@ -776,7 +1152,7 @@ function debugFinishLevel(s) {
   for (const r of s.runes) r.lit = true; if (s.runes.length) s.runeNext = s.runes.length + 1;
   if (s.torches.length) { s.torchesDone = true; for (const t of s.torches) t.lit = 1; }
   if (s.survive) s.survive.left = 0;
-  if (s.boss && s.boss.alive) { s.boss.hp = 1; s.boss.hitCd = 0; s.fires.push({ cx: s.boss.cx, cy: s.boss.cy, timer: 0.3, kind: 'c', owner: null }); }
+  if (s.boss && s.boss.alive) { const [x, y] = bossDanger(s)[0] || [s.boss.x, s.boss.y]; if (s.boss.type === 'twins') for (const w of s.boss.twins) w.down = 1; defeatBoss(s, s.boss, x, y, (s.players[0] || {}).id); }
   const p = s.players.find(p => p.alive) || s.players[0];
   if (s.portal) { p.alive = true; p.x = s.portal.cx * T + T / 2; p.y = s.portal.cy * T + T / 2; }
   s.intro = 0;
@@ -795,7 +1171,17 @@ function debugSpawnGold(s, playerId, kind) {
 // statistiky k přenesení do dalšího levelu
 function carryOf(s) {
   const players = {}; for (const p of s.players) players[p.id] = { maxBombs: p.maxBombs, fire: p.fire, speed: p.speed, kick: p.kick, gold: p.alive ? p.gold : null };
-  return { score: s.score, deaths: s.deaths, players };
+  return { score: s.score, deaths: s.deaths, players, bossType: s.bossType, stats: JSON.parse(JSON.stringify(s.stats)) };
+}
+// statistiky celé výpravy pro vítěznou obrazovku (lokálně i po Wi-Fi v coop_end)
+function finalStats(s) {
+  const st = s.stats, n = Math.max(1, s.players.filter(p => !p.left).length);
+  const perPlayer = s.deaths / n;
+  const stars = Math.max(1, 3 - (perPlayer > 4 ? 1 : 0) - (perPlayer > 10 ? 1 : 0));
+  return { boss: s.bossType, bossName: BOSS_TYPES[s.bossType].name, difficulty: s.opts.difficulty, time: Math.round(st.time), kills: st.kills, deaths: s.deaths, score: s.score,
+    stars, lastHit: st.lastHit, fullRun: st.startLevel === 0,
+    players: s.players.map(p => { const q = st.players[p.id] || { deaths: 0, kills: 0, golds: [], hits: 0 };
+      return { id: p.id, name: p.name, color: p.color, deaths: q.deaths, kills: q.kills, golds: q.golds.slice(), hits: q.hits }; }) };
 }
 
 // ---------- Pohled pro vykreslení (stejný tvar lokálně i ze sítě) ----------
@@ -804,8 +1190,8 @@ function view(s) {
     level: s.level, levelCount: s.levelCount, name: s.name, sub: s.sub, theme: s.theme, deaths: s.deaths, score: s.score,
     objective: objectiveText(s), intro: s.intro, outro: s.outro, done: s.done, friendlyFire: s.opts.friendlyFire, time: s.time,
     portal: s.portal, keys: s.keys, switches: s.switches, nest: s.nest && s.nest.hp > 0 ? s.nest : null,
-    monsters: s.monsters.filter(m => m.alive), projectiles: s.projectiles, webs: s.webs, newcomers: s.newcomers, tips: LEVELS[s.level].tips || [],
-    boss: s.boss && s.boss.alive ? s.boss : null,
+    monsters: s.monsters.filter(m => m.alive), projectiles: s.projectiles, webs: s.webs, newcomers: s.newcomers, tips: s.tips, sub: s.sub,
+    boss: bossFromArr(bossView(s)), bossType: s.bossType, bossSay: s.bossSay, bossDeath: s.bossDeath, snakeBits: s.snakeBits, poofs: s.poofs,
     cages: s.cages, gems: s.gems, runes: s.runes, runeNext: s.runeNext, torches: s.torches, torchMax: s.diff.torch, torchesDone: !!s.torchesDone,
     survive: s.survive ? { left: s.survive.left, total: s.survive.total } : null, goldNote: s.goldNote,
     team: s.players.map(p => ({ id: p.id, respawn: p.respawn, grace: p.grace, left: p.left, deaths: p.deaths, frozen: p.frozen, gold: p.gold || null })),
@@ -824,10 +1210,12 @@ function snapshot(s) {
     // příšera: typ, x, y, směr, animace, hp, příznaky (1 malý · 2 zahrabaný · 4 neviditelný · 8 chvilka po vylezení), výška skoku, snědené bomby
     m: s.monsters.filter(m => m.alive).map(m => [m.type, Math.round(m.x), Math.round(m.y), m.dir[0], m.dir[1], +m.anim.toFixed(1), m.hp,
       (m.small ? 1 : 0) | (m.under ? 2 : 0) | (m.hidden ? 4 : 0) | (m.grace > 0 ? 8 : 0) | (m.unraveled ? 16 : 0) | (m.safeT > 0 ? 32 : 0), Math.round(m.z || 0), m.eaten || 0]),
-    pr: s.projectiles.map(p => [Math.round(p.x), Math.round(p.y), p.dx, p.dy, p.kind === 'ice' ? 1 : 0]),
+    pr: s.projectiles.map(p => [Math.round(p.x), Math.round(p.y), p.dx, p.dy, p.kind === 'ice' ? 1 : p.kind === 'magic' ? 2 : 0]),
     we: s.webs.map(w => [w.cx, w.cy, +w.life.toFixed(1)]),
     nw: s.intro > 0 ? s.newcomers : null,
-    bs: s.boss && s.boss.alive ? [Math.round(s.boss.x), Math.round(s.boss.y), s.boss.dir[0], s.boss.dir[1], +s.boss.anim.toFixed(1), s.boss.hp, s.boss.maxHp, s.boss.enraged ? 1 : 0, s.boss.hitCd > 0.5 ? 1 : 0] : null,
+    // boss: typ (vylosovaný už při startu výpravy), jednotný pohled na části, hláška, místo, kde padl, efekty (useknuté články, prasklé iluze)
+    bt: s.bossType, bs: bossView(s), sy: s.bossSay ? [s.bossSay.text, +s.bossSay.t.toFixed(1)] : null,
+    bd: s.bossDeath ? [Math.round(s.bossDeath.x), Math.round(s.bossDeath.y)] : null, sb: s.snakeBits.length ? s.snakeBits : null, pf: s.poofs.length ? s.poofs : null,
     tp: s.players.map(p => [p.id, +p.respawn.toFixed(1), p.grace > 0 ? 1 : 0, p.left ? 1 : 0, p.deaths, +(p.frozen || 0).toFixed(1), p.gold || '']),
     // nové úkoly: klece, krystaly, runy, pochodně, odpočet „vydržte“; gn = kdo právě sebral zlatou schopnost
     ca: s.cages.map(c => [c.cx, c.cy, c.open ? 1 : 0, c.saved ? 1 : 0, c.animal]),
@@ -840,9 +1228,9 @@ function snapshot(s) {
   return base;
 }
 function viewFromSnapshot(c) {
-  const L = LEVELS[c.lv];
+  const L = LEVELS[c.lv], BT = BOSS_TYPES[c.bt];
   return {
-    level: c.lv, levelCount: LEVELS.length, name: L.name, sub: L.sub, theme: L.theme, deaths: c.de, score: c.sc,
+    level: c.lv, levelCount: LEVELS.length, name: L.name, sub: L.boss && BT ? BT.name : L.sub, theme: L.theme, deaths: c.de, score: c.sc,
     objective: c.ob, intro: c.in, outro: c.ou, done: c.dn || null, time: c.tm,
     portal: c.po ? { cx: c.po[0], cy: c.po[1], open: !!c.po[2] } : null,
     keys: c.ke.map(k => ({ cx: k[0], cy: k[1], revealed: !!k[2], taken: !!k[3] })),
@@ -850,18 +1238,19 @@ function viewFromSnapshot(c) {
     nest: c.ne ? { cx: c.ne[0], cy: c.ne[1], hp: c.ne[2], maxHp: c.ne[3] } : null,
     monsters: c.m.map(m => ({ type: m[0], x: m[1], y: m[2], dir: [m[3], m[4]], anim: m[5], hp: m[6], alive: true,
       small: !!(m[7] & 1), under: !!(m[7] & 2), hidden: !!(m[7] & 4), grace: m[7] & 8 ? 1 : 0, unraveled: !!(m[7] & 16), safeT: m[7] & 32 ? 1 : 0, z: m[8] || 0, eaten: m[9] || 0 })),
-    projectiles: c.pr.map(p => ({ x: p[0], y: p[1], dx: p[2], dy: p[3], kind: p[4] ? 'ice' : 'fire' })),
-    webs: (c.we || []).map(w => ({ cx: w[0], cy: w[1], life: w[2] })), newcomers: c.nw || [], tips: L.tips || [],
+    projectiles: c.pr.map(p => ({ x: p[0], y: p[1], dx: p[2], dy: p[3], kind: ['fire', 'ice', 'magic'][p[4]] || 'fire' })),
+    webs: (c.we || []).map(w => ({ cx: w[0], cy: w[1], life: w[2] })), newcomers: c.nw || [], tips: L.boss && BT ? BT.tips : (L.tips || []),
     cages: (c.ca || []).map(a => ({ cx: a[0], cy: a[1], open: !!a[2], saved: !!a[3], animal: a[4] })),
     gems: (c.ge || []).map(q => ({ cx: q[0], cy: q[1], revealed: !!q[2], taken: !!q[3] })),
     runes: (c.ru || []).map(r => ({ cx: r[0], cy: r[1], n: r[2], lit: !!r[3] })), runeNext: c.rn || 1,
     torches: (c.to || []).map(t => ({ cx: t[0], cy: t[1], lit: t[2] })), torchMax: c.tx || 30, torchesDone: !!c.td,
     survive: c.sv ? { left: c.sv[0], total: c.sv[1] } : null,
     goldNote: c.gn ? { id: c.gn[0], kind: c.gn[1], t: c.gn[2] } : null,
-    boss: c.bs ? { x: c.bs[0], y: c.bs[1], dir: [c.bs[2], c.bs[3]], anim: c.bs[4], hp: c.bs[5], maxHp: c.bs[6], enraged: !!c.bs[7], hitCd: c.bs[8] ? 1 : 0, alive: true } : null,
+    boss: bossFromArr(c.bs), bossType: c.bt || null, bossSay: c.sy ? { text: c.sy[0], t: c.sy[1] } : null, bossDeath: c.bd ? { x: c.bd[0], y: c.bd[1], type: c.bt } : null,
+    snakeBits: c.sb || [], poofs: c.pf || [],
     team: c.tp.map(t => ({ id: t[0], respawn: t[1], grace: t[2], left: !!t[3], deaths: t[4] || 0, frozen: t[5] || 0, gold: t[6] || null })),
   };
 }
 
-return { LEVELS, DIFFICULTIES, MONSTER_TYPES, GOLD_TYPES, GOLD_KINDS, NEST, CAGE, TORCH, REMOTE_FUSE, INTRO_TIME, OUTRO_TIME, GRACE_TIME, respawnTime, createLevel, makeMonster, step, carryOf, view, snapshot, viewFromSnapshot, objectiveText, debugFinishLevel, debugSpawnRevive, debugSpawnGold };
+return { LEVELS, DIFFICULTIES, MONSTER_TYPES, GOLD_TYPES, GOLD_KINDS, BOSS_TYPES, BOSS_KINDS, BF, finalStats, OUTRO_WON, NEST, CAGE, TORCH, REMOTE_FUSE, INTRO_TIME, OUTRO_TIME, GRACE_TIME, respawnTime, createLevel, makeMonster, step, carryOf, view, snapshot, viewFromSnapshot, objectiveText, debugFinishLevel, debugSpawnRevive, debugSpawnGold };
 });

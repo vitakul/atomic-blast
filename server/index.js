@@ -80,7 +80,8 @@ function coopTick(room) {
   if (result.done === 'level') { startCoopLevel(room, s.level + 1, Coop.carryOf(s)); return; }
   room.phase = 'between';
   const names = [...room.members.values()].map(m => m.name);
-  broadcast(room, { t: 'coop_end', won: result.done === 'won', level: s.level + 1, score: s.score, deaths: s.deaths, names });
+  broadcast(room, { t: 'coop_end', won: result.done === 'won', level: s.level + 1, score: s.score, deaths: s.deaths, names,
+    stats: result.done === 'won' ? Coop.finalStats(s) : null });   // klient z toho kreslí vítěznou obrazovku
   room.pending = setTimeout(() => { room.pending = null; room.phase = 'lobby'; room.state = null; broadcast(room, lobbyInfo(room)); }, COOP_END_MS);
 }
 function startRound(room) {

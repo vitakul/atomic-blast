@@ -32,7 +32,7 @@ Hráči procházejí jedenáct navazujících bludišť, každé s jinou grafiko
 | 8 | **Noční hřbitov** (nový) | ve tmě zapálit bombou 4 pochodně – každá hoří jen chvíli (30 s, lehká 40 s, těžká 22 s), musí hořet všechny naráz |
 | 9 | Hrad | 2 klíče + zničit všechny příšery (včetně obrněnců na 3 zásahy) |
 | 10 | **Továrna** (nová) | vydržet 60 s (lehká 50 s, těžká 70 s) – příšery pořád přicházejí, ke konci po dvou |
-| 11 | Bossova komnata | porazit Velkého Bombuse |
+| 11 | Bossova komnata | porazit bosse – jednoho z pěti (viz **Bossové** níže) |
 
 Úvod každého levelu představí nové příšery i nové věci (klece, krystaly, runy, pochodně…). Ve Továrně
 ukazuje časomíra nahoře červeně, kolik zbývá vydržet; na Nočním hřbitově je vidět jen kolem hráčů,
@@ -52,8 +52,7 @@ Pravidla:
 - Portál je vidět od začátku, otevře se po splnění úkolu; stačí, když do něj vejde jeden hráč.
 - Úkol levelu je pořád vidět v HUD („Úkol: …“), mezi levely se ukáže název a úkol dalšího bludiště.
 - Příšery: balónek, duch (prochází cihlami), lovec (pronásleduje), **střelec** (střílí ohnivou kouli po řádku,
-  když tě vidí) a **obrněnec** (pomalý, 3 zásahy). Boss se pohybuje po mapě, boří cihly, volá pomocníky
-  a při polovině životů zrychlí a začne střílet do čtyř stran. Zraňuje ho jen oheň z bomb.
+  když tě vidí) a **obrněnec** (pomalý, 3 zásahy). Bossové mají vlastní sekci níže.
 - Příšery se schopnostmi přibývají s levely; v úvodu levelu se nové příšery představí s popisem:
 
   | Příšera | Od levelu | Co umí |
@@ -69,10 +68,41 @@ Pravidla:
   | Chameleon | 8 Noční hřbitov | střídavě se zneviditelní a v neviditelnosti se plíží k hráči |
   | Bombík | 10 Továrna | když je hráč blízko, položí vlastní bombu (zraní každého) a chvíli ho oheň nechytí |
 
-  Hnízdo občas vylíhne i sliz, boss volá na pomoc i žabáky a slizy.
+  Hnízdo občas vylíhne i sliz, Velký Bombus volá na pomoc i žabáky a slizy.
 - Skóre je společné; power-upy se přenášejí do dalšího levelu (po smrti o jeden stupeň níž).
 - **Zlaté power-upy** – viz níže.
 - Obtížnost (lehká · normální · těžká) mění rychlost a počet příšer a životy bosse.
+
+### Bossové
+
+V Bossově komnatě čeká jeden z pěti bossů. **Vylosuje se hned při startu výpravy** (lokálně i na serveru;
+po Wi-Fi ho server pošle klientům ve stavu hry), takže se až v posledním levelu dozvíte, na koho jste narazili.
+V nastavení výpravy (lokálně i v lobby po Wi-Fi) se dá místo **🎲 NÁHODNÝ** vybrat konkrétní boss.
+Úvod levelu ukáže jméno bosse a jak na něj; při začátku boss levelu zazní krátká hrozivá znělka.
+Každý boss má fázi **zuřivost** (při polovině životů), vlastní hlášky v dialogovém okně nahoře a ukazatel
+životů dole.
+
+| Boss | Jak ho porazit | Zuřivost | Životy (lehká/normální/těžká) |
+|---|---|---|---|
+| 👹 **Velký Bombus** | zraňuje ho jen oheň z bomb; boří cihly a volá pomocníky | zrychlí a střílí do čtyř stran | 8 / 12 / 16 |
+| 🐍 **Had Syčoun** | dlouhé tělo z článků se plazí po bludišti a pořád dorůstá. Oheň hada přesekne – všechno za zasaženým článkem odpadne (z velkého kusu se může vyklubat sliz). Hlava je zranitelná, **až když má had nejvýš 2 články** (bliká červeně); po zásahu se zase natáhne | zrychlí, roste rychleji a plive oheň | 3 / 4 / 5 zásahů do hlavy |
+| 🧙 **Mág Iluzín** | teleportuje se a vyčaruje 2–4 své kopie. Zranitelný je **jen pravý** – kopie po zásahu nebo dotyku prasknou. Pravého poznáte tak, že jen on kouzlí (rozzáří hůl) a střílí magické střely; kopie se občas zatřpytí | teleportuje se častěji, víc kopií, vyvolá duchy | 4 / 6 / 8 |
+| 👯 **Dvojčata Ohnivák a Ledovák** | Ohnivák střílí oheň, Ledovák mrazí (kamarád rozmrazí dotykem). Poražené dvojče leží a **za 8 / 6 / 4,5 s se zvedne** s půlkou životů – musíte porazit oba skoro naráz | zrychlí a střílejí častěji | 3 / 4 / 5 každé |
+| 🗿 **Obr Balvan** | má kamennou kůži – oheň mu neublíží. Když zvedne nohu (červený vykřičník), dupne: otřese se obraz a ze stropu padá kamení (padá na stíny, hlavně u hráčů; dopadlé kamení zůstane jako cihla). **Po dupnutí je chvíli omráčený** (hvězdičky) – jen tehdy ho oheň zraní a nikoho při dotyku nezraní | dupe častěji, padá víc kamení | 4 / 6 / 8 |
+
+Obtížnost u bossů mění životy i rychlost (pohyb, růst hada, střelba, jak dlouho je obr omráčený, za jak
+dlouho se dvojče zvedne).
+
+### Konec výpravy
+
+Po poražení bosse se boss v záběru třese, bliká a postupně vybuchuje, pak velký výbuch s otřesem obrazovky,
+zábleskem a částicemi a nápis „BOSS PORAŽEN!“. Následuje **vítězná obrazovka**: pixelový nadpis VÍTĚZSTVÍ!,
+ohňostroj, hodnocení 1–3 hvězdičkami (podle počtu smrtí na hráče), statistiky výpravy (čas, poražené příšery,
+smrti, sebrané zlaté schopnosti, skóre), tabulka hrdinů (smrti, příšery, zásahy bosse, zlaté schopnosti),
+kdo zasadil poslední ránu a rolující titulky. Hraje chiptune vítězná fanfára a pak smyčka – vše je
+syntetizované v prohlížeči přes Web Audio API (square/triangle oscilátory a šumové bicí), žádné zvukové soubory.
+**Enter** = zpět do menu (po Wi-Fi zpět do lobby; server se do lobby vrátí sám, obrazovka zůstane, dokud
+hráč nestiskne Enter).
 
 ### Zlaté power-upy (speciální schopnosti)
 
@@ -96,7 +126,7 @@ nebo z příšery (5 %). Na mapě je vždy nejvýš jeden a oheň ho nezničí.
 | 🦘 Přeskok bomb | chodíš přes bomby, nic tě nezastaví |
 
 Po Wi-Fi se výprava hraje stejně: zakladatel v lobby přepne **REŽIM** na VÝPRAVA, zvolí obtížnost
-a friendly fire a dá start (2–3 hráči). Po vítězství nebo konci výpravy se místnost vrátí do lobby.
+a friendly fire a dá start (2–3 hráči). Po vítězství uvidí každý vítěznou obrazovku a místnost se vrátí do lobby.
 
 ## Hra po Wi-Fi
 
@@ -124,5 +154,5 @@ nic dalšího není potřeba.
 - `server/engine.js` – pravidla arény (pohyb, bomby, oheň, power-upy) bez DOM; načítá se v prohlížeči
   i v Node. Lokální aréna a kampaň v `index.html` mají tatáž pravidla napsaná znovu (záměrně, kvůli
   jednomu souboru bez závislostí) – při změně pravidel upravit obě místa.
-- `coop.js` – Společná výprava: levely a témata, úkoly, příšery, boss, oživování, zlaté schopnosti. Jeden modul pro
+- `coop.js` – Společná výprava: levely a témata, úkoly, příšery, bossové (`BOSS_TYPES`), oživování, zlaté schopnosti, statistiky. Jeden modul pro
   prohlížeč (lokální hra) i server (hra po Wi-Fi), takže se tato logika nepíše dvakrát.
