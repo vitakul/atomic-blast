@@ -11,14 +11,27 @@
 
 const { COLS, ROWS, T, EMPTY, WALL, BRICK, cell } = E;
 const NEST = 3;                       // speciální pevné políčko v mřížce (hnízdo příšer)
-const INTRO_TIME = 2.6, OUTRO_TIME = 2.8, RESPAWN_TIME = 3, GRACE_TIME = 2;
+const INTRO_TIME = 2.6, OUTRO_TIME = 2.8, GRACE_TIME = 2.5;
+// Oživení: nikdo nezůstává mimo hru natrvalo. Čekání roste s každou smrtí v daném levelu
+// (5 s, 10 s, 15 s, 20 s, …20 s), v dalším levelu se počítá znovu od začátku.
+const RESPAWN_BASE = 5, RESPAWN_STEP = 5, RESPAWN_MAX = 20;
+function respawnTime(deaths) { return Math.min(RESPAWN_MAX, RESPAWN_BASE + RESPAWN_STEP * Math.max(0, deaths - 1)); }
+// Oživovací power-up ❤: padá jen z cihly/příšery, když někdo čeká na oživení; sebrání živým hráčem vrátí všechny čekající hned
+const REVIVE_DROP_BRICK = 0.18, REVIVE_DROP_MONSTER = 0.35;
+function someoneWaiting(s) { return s.players.some(p => !p.alive && !p.left && p.respawn > 0); }
+function maybeDropRevive(s, x, y, chance) {
+  if (!someoneWaiting(s) || s.powerups.some(u => u.kind === 'revive') || Math.random() >= chance) return false;
+  s.powerups.push({ cx: x, cy: y, kind: 'revive', shield: E.FIRE_TIME + 0.05 });
+  s.events.push('reviveup');
+  return true;
+}
 const START_CELLS = [[1, 1], [2, 1], [1, 2]];
 
 // ---------- Obtížnost ----------
 const DIFFICULTIES = {
-  easy:   { label: 'LEHKÁ',    lives: 7, speed: 0.85, extra: -1, bossHp: 8,  shootEvery: 3.6 },
-  normal: { label: 'NORMÁLNÍ', lives: 5, speed: 1.0,  extra: 0,  bossHp: 12, shootEvery: 3.0 },
-  hard:   { label: 'TĚŽKÁ',    lives: 3, speed: 1.2,  extra: 1,  bossHp: 16, shootEvery: 2.4 },
+  easy:   { label: 'LEHKÁ',    speed: 0.85, extra: -1, bossHp: 8,  shootEvery: 3.6 },
+  normal: { label: 'NORMÁLNÍ', speed: 1.0,  extra: 0,  bossHp: 12, shootEvery: 3.0 },
+  hard:   { label: 'TĚŽKÁ',    speed: 1.2,  extra: 1,  bossHp: 16, shootEvery: 2.4 },
 };
 
 // ---------- Příšery ----------
@@ -110,13 +123,13 @@ function farCells(g, pred, minDist) {
 function pickRandom(arr) { return arr.splice(Math.floor(Math.random() * arr.length), 1)[0]; }
 
 // ---------- Vytvoření levelu ----------
-// playerInfos: [{id, name}], opts: {difficulty, friendlyFire}, carry: {lives, score, players:{id→stats}} z minulého levelu
+// playerInfos: [{id, name}], opts: {difficulty, friendlyFire}, carry: {score, deaths, players:{id→stats}} z minulého levelu
 function createLevel(levelIndex, playerInfos, opts, carry) {
   const L = LEVELS[levelIndex]; const diff = DIFFICULTIES[(opts && opts.difficulty) || 'normal'] || DIFFICULTIES.normal;
   const s = {
     coop: true, level: levelIndex, levelCount: LEVELS.length, name: L.name, sub: L.sub, theme: L.theme, opts: { difficulty: (opts && opts.difficulty) || 'normal', friendlyFire: !!(opts && opts.friendlyFire) },
     grid: buildGrid(L), bombs: [], fires: [], powerups: [], players: [], monsters: [], projectiles: [], events: [],
-    lives: carry && carry.lives != null ? carry.lives : diff.lives, score: carry && carry.score || 0, maxLives: diff.lives,
+    score: carry && carry.score || 0, deaths: carry && carry.deaths || 0,   // deaths = celkem za výpravu (jen statistika)
     intro: INTRO_TIME, outro: 0, done: null, time: 0, dropRate: 0.5, diff,
     keys: [], switches: [], nest: null, portal: null, boss: null, webs: [],
   };
@@ -175,7 +188,8 @@ function createLevel(levelIndex, playerInfos, opts, carry) {
     s.boss = { cx: bx, cy: by, x: bx * T + T / 2, y: by * T + T / 2, dir: [0, 1], anim: 0, hp: diff.bossHp, maxHp: diff.bossHp, hitCd: 0, spawnT: 6, shootT: 4, think: 0, path: null, speed: 1.1 * diff.speed, enraged: false, alive: true };
   }
   // háčky pro engine.explode
-  s.onBrick = (x, y) => { const k = s.keys.find(k => k.cx === x && k.cy === y); if (k) { k.revealed = true; s.events.push('reveal'); return true; } return false; };
+  s.onBrick = (x, y) => { const k = s.keys.find(k => k.cx === x && k.cy === y); if (k) { k.revealed = true; s.events.push('reveal'); return true; }
+    return maybeDropRevive(s, x, y, REVIVE_DROP_BRICK); };
   s.onSpecial = (x, y) => { if (s.nest && s.nest.cx === x && s.nest.cy === y && s.nest.hitCd <= 0) { s.nest.hp--; s.nest.hitCd = 0.6; s.events.push('bosshit');
     if (s.nest.hp <= 0) { g[y][x] = EMPTY; s.nest.hp = 0; s.events.push('nestdown'); s.score += 1500; } } };
   return s;
@@ -342,7 +356,7 @@ function killMonster(s, m) {
       s.monsters.push(k);
     }
     s.events.push('split');
-  } else if (Math.random() < 0.3) E.dropPowerup(s, m.cx, m.cy, true);
+  } else if (!maybeDropRevive(s, m.cx, m.cy, REVIVE_DROP_MONSTER) && Math.random() < 0.3) E.dropPowerup(s, m.cx, m.cy, true);
 }
 function popGlutton(s, m) {
   // přejedený hltoun praskne: výbuch o dosahu 2, který zraní každého (je to „ničí“ bomba)
@@ -453,26 +467,47 @@ function stepTeam(s, dt) {
   } else if (s.boss && !s.boss.alive) return 'won';
   return null;
 }
+// ❤ sebrané živým hráčem oživí hned každého, kdo čeká (před engine.stepPickups, aby ho ten nespolkl)
+function stepRevivePickup(s) {
+  for (const p of s.players) if (p.alive) {
+    const i = s.powerups.findIndex(u => u.kind === 'revive' && u.cx === cell(p.x) && u.cy === cell(p.y));
+    if (i < 0) continue;
+    s.powerups.splice(i, 1); s.score += 200;
+    const waiting = s.players.filter(q => !q.alive && !q.left && q.respawn > 0);
+    for (const q of waiting) revive(s, q);   // revive() sám hlásí událost 'revive'
+    if (!waiting.length) s.events.push('powerup');
+  }
+}
 function onDeath(s, p) {
-  p.deaths++;
-  if (s.lives > 0) { s.lives--; p.respawn = RESPAWN_TIME; }
-  else p.respawn = 0;   // bez životů zůstává mrtvý do konce levelu
+  p.deaths++; s.deaths++;
+  p.respawn = respawnTime(p.deaths);   // vždy se vrátí, jen čeká déle a déle
+}
+// bezpečné políčko: volné, bez bomby a plamene, žádná příšera ani boss v okolí
+function safeCell(s, x, y) {
+  if (!s.grid[y] || s.grid[y][x] !== EMPTY || E.bombAt(s, x, y) || s.fires.some(f => f.cx === x && f.cy === y)) return false;
+  const px = x * T + T / 2, py = y * T + T / 2;
+  if (s.monsters.some(m => m.alive && Math.abs(m.x - px) < T * 2 && Math.abs(m.y - py) < T * 2)) return false;
+  if (s.boss && s.boss.alive && Math.abs(s.boss.x - px) < T * 3 && Math.abs(s.boss.y - py) < T * 3) return false;
+  if (s.projectiles.some(pr => Math.abs(pr.x - px) < T * 2 && Math.abs(pr.y - py) < T * 2)) return false;
+  return true;
 }
 function revive(s, p) {
-  // vedle živého spoluhráče, jinak na startu
+  // vedle živého spoluhráče, jinak na startu, jinak kdekoli bezpečně; když není kde, start i přes riziko (chrání nesmrtelnost)
   const mate = s.players.find(q => q.alive && !q.left);
-  let spot = null;
+  const cands = [];
   if (mate) { const mx = cell(mate.x), my = cell(mate.y);
-    const cands = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => [mx + dx, my + dy]).filter(([x, y]) => s.grid[y] && s.grid[y][x] === EMPTY && !E.bombAt(s, x, y) && !s.fires.some(f => f.cx === x && f.cy === y));
-    if (cands.length) spot = cands[0]; }
-  if (!spot) spot = START_CELLS[s.players.indexOf(p) % START_CELLS.length];
+    for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1], [2, 0], [-2, 0], [0, 2], [0, -2]]) cands.push([mx + dx, my + dy]); }
+  const home = START_CELLS[s.players.indexOf(p) % START_CELLS.length];
+  cands.push(home, ...START_CELLS.filter(c => c !== home));
+  for (let y = 1; y < ROWS - 1; y++) for (let x = 1; x < COLS - 1; x++) cands.push([x, y]);
+  let spot = cands.find(([x, y]) => safeCell(s, x, y)) || home;
   p.x = spot[0] * T + T / 2; p.y = spot[1] * T + T / 2; p.alive = true; p.grace = GRACE_TIME; p.respawn = 0; p.frozen = 0;
   p.maxBombs = Math.max(1, p.maxBombs - 1); p.fire = Math.max(2, p.fire - 1);
   s.events.push('revive');
 }
 
 // ---------- Hlavní krok ----------
-// inputs: { [playerId]: {dx, dy, bomb} } → null, nebo { done: 'level' | 'won' | 'lost' } (až po dohrání „outra“)
+// inputs: { [playerId]: {dx, dy, bomb} } → null, nebo { done: 'level' | 'won' } (až po dohrání „outra“)
 function step(s, inputs, dt) {
   s.events = [];
   if (s.done) { s.outro -= dt; return s.outro <= 0 ? { done: s.done } : null; }
@@ -489,6 +524,7 @@ function step(s, inputs, dt) {
   s.players.forEach((p, i) => { p.speed = speeds[i]; });
   E.stepBombs(s, dt);
   E.stepFires(s, dt, (f, p) => p.grace <= 0 && (s.opts.friendlyFire || f.owner === p.id || f.owner == null));
+  stepRevivePickup(s);
   E.stepPickups(s);
   stepMonsters(s, dt);
   stepWebs(s, dt);
@@ -498,8 +534,7 @@ function step(s, inputs, dt) {
   const result = stepTeam(s, dt);
   s.players.forEach((p, i) => { if (aliveBefore[i] && !p.alive) onDeath(s, p); });
   if (result) { s.done = result; s.outro = OUTRO_TIME; s.score += result === 'level' ? 1000 * (s.level + 1) : 0; s.events.push(result === 'won' ? 'victory' : 'levelup'); return null; }
-  const anyoneUp = s.players.some(p => !p.left && (p.alive || p.respawn > 0));
-  if (!anyoneUp) { s.done = 'lost'; s.outro = OUTRO_TIME; s.events.push('gameover'); }
+  // Konec výpravy neexistuje: i když padnou všichni naráz, každý jen čeká na své oživení.
   return null;
 }
 // Testovací zkratka (server ji pustí jen s AB_DEBUG=1): splní úkol levelu a postaví hráče do portálu / dorazí bosse
@@ -513,21 +548,26 @@ function debugFinishLevel(s) {
   if (s.portal) { p.alive = true; p.x = s.portal.cx * T + T / 2; p.y = s.portal.cy * T + T / 2; }
   s.intro = 0;
 }
+// Testovací zkratka: položí ❤ na políčko hráče (pro ověření oživení power-upem po Wi-Fi)
+function debugSpawnRevive(s, playerId) {
+  const p = s.players.find(q => q.id === playerId) || s.players[0];
+  s.powerups.push({ cx: cell(p.x), cy: cell(p.y), kind: 'revive', shield: 0 });
+}
 // statistiky k přenesení do dalšího levelu
 function carryOf(s) {
   const players = {}; for (const p of s.players) players[p.id] = { maxBombs: p.maxBombs, fire: p.fire, speed: p.speed, kick: p.kick };
-  return { lives: s.lives, score: s.score, players };
+  return { score: s.score, deaths: s.deaths, players };
 }
 
 // ---------- Pohled pro vykreslení (stejný tvar lokálně i ze sítě) ----------
 function view(s) {
   return {
-    level: s.level, levelCount: s.levelCount, name: s.name, sub: s.sub, theme: s.theme, lives: s.lives, maxLives: s.maxLives, score: s.score,
+    level: s.level, levelCount: s.levelCount, name: s.name, sub: s.sub, theme: s.theme, deaths: s.deaths, score: s.score,
     objective: objectiveText(s), intro: s.intro, outro: s.outro, done: s.done, friendlyFire: s.opts.friendlyFire, time: s.time,
     portal: s.portal, keys: s.keys, switches: s.switches, nest: s.nest && s.nest.hp > 0 ? s.nest : null,
     monsters: s.monsters.filter(m => m.alive), projectiles: s.projectiles, webs: s.webs, newcomers: s.newcomers,
     boss: s.boss && s.boss.alive ? s.boss : null,
-    team: s.players.map(p => ({ id: p.id, respawn: p.respawn, grace: p.grace, left: p.left, frozen: p.frozen })),
+    team: s.players.map(p => ({ id: p.id, respawn: p.respawn, grace: p.grace, left: p.left, deaths: p.deaths, frozen: p.frozen })),
   };
 }
 // kompaktní snapshot pro síť: základ z enginu + kooperativní doplněk „c“
@@ -535,7 +575,7 @@ function snapshot(s) {
   const base = E.snapshot(s);
   base.t = Math.floor(s.time);
   base.c = {
-    lv: s.level, li: s.lives, ml: s.maxLives, sc: s.score, ob: objectiveText(s), in: +s.intro.toFixed(2), ou: +s.outro.toFixed(2), dn: s.done || '', tm: Math.floor(s.time),
+    lv: s.level, de: s.deaths, sc: s.score, ob: objectiveText(s), in: +s.intro.toFixed(2), ou: +s.outro.toFixed(2), dn: s.done || '', tm: Math.floor(s.time),
     po: s.portal ? [s.portal.cx, s.portal.cy, s.portal.open ? 1 : 0] : null,
     ke: s.keys.map(k => [k.cx, k.cy, k.revealed ? 1 : 0, k.taken ? 1 : 0]),
     sw: s.switches.map(w => [w.cx, w.cy, w.on ? 1 : 0]),
@@ -547,14 +587,14 @@ function snapshot(s) {
     we: s.webs.map(w => [w.cx, w.cy, +w.life.toFixed(1)]),
     nw: s.intro > 0 ? s.newcomers : null,
     bs: s.boss && s.boss.alive ? [Math.round(s.boss.x), Math.round(s.boss.y), s.boss.dir[0], s.boss.dir[1], +s.boss.anim.toFixed(1), s.boss.hp, s.boss.maxHp, s.boss.enraged ? 1 : 0, s.boss.hitCd > 0.5 ? 1 : 0] : null,
-    tp: s.players.map(p => [p.id, +p.respawn.toFixed(1), p.grace > 0 ? 1 : 0, p.left ? 1 : 0, +(p.frozen || 0).toFixed(1)]),
+    tp: s.players.map(p => [p.id, +p.respawn.toFixed(1), p.grace > 0 ? 1 : 0, p.left ? 1 : 0, p.deaths, +(p.frozen || 0).toFixed(1)]),
   };
   return base;
 }
 function viewFromSnapshot(c) {
   const L = LEVELS[c.lv];
   return {
-    level: c.lv, levelCount: LEVELS.length, name: L.name, sub: L.sub, theme: L.theme, lives: c.li, maxLives: c.ml, score: c.sc,
+    level: c.lv, levelCount: LEVELS.length, name: L.name, sub: L.sub, theme: L.theme, deaths: c.de, score: c.sc,
     objective: c.ob, intro: c.in, outro: c.ou, done: c.dn || null, time: c.tm,
     portal: c.po ? { cx: c.po[0], cy: c.po[1], open: !!c.po[2] } : null,
     keys: c.ke.map(k => ({ cx: k[0], cy: k[1], revealed: !!k[2], taken: !!k[3] })),
@@ -565,9 +605,9 @@ function viewFromSnapshot(c) {
     projectiles: c.pr.map(p => ({ x: p[0], y: p[1], dx: p[2], dy: p[3], kind: p[4] ? 'ice' : 'fire' })),
     webs: (c.we || []).map(w => ({ cx: w[0], cy: w[1], life: w[2] })), newcomers: c.nw || [],
     boss: c.bs ? { x: c.bs[0], y: c.bs[1], dir: [c.bs[2], c.bs[3]], anim: c.bs[4], hp: c.bs[5], maxHp: c.bs[6], enraged: !!c.bs[7], hitCd: c.bs[8] ? 1 : 0, alive: true } : null,
-    team: c.tp.map(t => ({ id: t[0], respawn: t[1], grace: t[2], left: !!t[3], frozen: t[4] || 0 })),
+    team: c.tp.map(t => ({ id: t[0], respawn: t[1], grace: t[2], left: !!t[3], deaths: t[4] || 0, frozen: t[5] || 0 })),
   };
 }
 
-return { LEVELS, DIFFICULTIES, MONSTER_TYPES, NEST, INTRO_TIME, OUTRO_TIME, RESPAWN_TIME, createLevel, makeMonster, step, carryOf, view, snapshot, viewFromSnapshot, objectiveText, debugFinishLevel };
+return { LEVELS, DIFFICULTIES, MONSTER_TYPES, NEST, INTRO_TIME, OUTRO_TIME, GRACE_TIME, respawnTime, createLevel, makeMonster, step, carryOf, view, snapshot, viewFromSnapshot, objectiveText, debugFinishLevel, debugSpawnRevive };
 });
