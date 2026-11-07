@@ -372,6 +372,17 @@ function playEvents(evs){
     else if (e==='freeze') { beep(1500,0.15,'sine',0.06); setTimeout(()=>beep(1900,0.25,'sine',0.05),100); }
     else if (e==='thaw') { beep(900,0.1,'sine',0.06); setTimeout(()=>beep(600,0.15,'sine',0.06),80); }
     else if (e==='hide') beep(1100,0.12,'sine',0.03);
+    else if (e==='goldup') { [1200,1500,1800].forEach((f,i)=>setTimeout(()=>beep(f,0.1,'sine',0.05),i*70)); }
+    else if (e==='gold') { [660,880,1100,1320,1760].forEach((f,i)=>setTimeout(()=>beep(f,0.14,'square',0.06),i*80)); }
+    else if (e==='shield') { beep(1400,0.1,'triangle',0.1); setTimeout(()=>beep(500,0.3,'sawtooth',0.08),90); }
+    else if (e==='detonate') beep(1600,0.06,'square',0.06);
+    else if (e==='gem') { beep(1500,0.08,'sine',0.06); setTimeout(()=>beep(2000,0.1,'sine',0.05),60); }
+    else if (e==='cage') beep(350,0.2,'triangle',0.08);
+    else if (e==='rescue') { [800,1000,1300].forEach((f,i)=>setTimeout(()=>beep(f,0.12,'sine',0.07),i*90)); }
+    else if (e==='wrong') { beep(180,0.3,'square',0.08); setTimeout(()=>beep(140,0.35,'square',0.08),160); }
+    else if (e==='torch') beep(260,0.25,'sawtooth',0.06);
+    else if (e==='torchout') beep(160,0.2,'sine',0.05);
+    else if (e==='unravel') beep(240,0.3,'sawtooth',0.08);
   }
 }
 
@@ -704,6 +715,7 @@ function draw(){
   // power-upy
   for (const u of powerups){
     const px=u.cx*T,py=u.cy*T;
+    if (u.kind==='gold') { drawGoldTile(ctx,px,py,u.gold); continue; }
     const rev=u.kind==='revive', pulse=rev?1+0.08*Math.sin(performance.now()/120):1;
     ctx.fillStyle=rev?'#ff4d6d':'#ffd34d'; ctx.fillRect(px+6,py+6,T-12,T-12);
     if (rev) { ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.strokeRect(px+6,py+6,T-12,T-12); }
@@ -712,7 +724,9 @@ function draw(){
   }
   // bomby
   for (const b of bombs){
-    const pulse=1+0.12*Math.sin(performance.now()/90*(1+ (BOMB_TIME-b.timer)));
+    const remote=coop && b.timer>BOMB_TIME+0.05;   // výprava: bomba na rozbušku (zlatá schopnost) – klidná se zlatou anténkou
+    const pulse=remote?1+0.04*Math.sin(performance.now()/300):1+0.12*Math.sin(performance.now()/90*(1+ (BOMB_TIME-b.timer)));
+    if (remote) { ctx.strokeStyle='#ffd700'; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(b.mx,b.my+3,T*0.42,0,Math.PI*2); ctx.stroke(); }
     ctx.fillStyle='#222'; ctx.beginPath(); ctx.arc(b.mx,b.my+3,T*0.34*pulse,0,Math.PI*2); ctx.fill();
     ctx.fillStyle='#555'; ctx.beginPath(); ctx.arc(b.mx-6,b.my-4,T*0.1,0,Math.PI*2); ctx.fill();
     ctx.strokeStyle='#ddd'; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(b.mx,b.my-T*0.3); ctx.lineTo(b.mx+8,b.my-T*0.45); ctx.stroke();
@@ -734,7 +748,10 @@ function draw(){
   // hráči (výprava: oživovaný hráč bliká, mrtvý čeká průhledný s odpočtem)
   for (const p of players) {
     const tm = coop && coop.team.find(t=>t.id===p.id);
-    if (p.alive) { if (tm && tm.grace>0 && !(tm.frozen>0) && Math.floor(performance.now()/120)%2) continue; drawPlayerSprite(ctx,p.x,p.y,p.color,p.dir,p.anim);
+    if (p.alive) { if (tm && tm.grace>0 && !(tm.frozen>0) && Math.floor(performance.now()/120)%2) continue;
+      if (tm && tm.gold) drawGoldAura(ctx,p.x,p.y,tm.gold);
+      const inBrick = grid[cell(p.y)] && grid[cell(p.y)][cell(p.x)]===BRICK; if (inBrick) ctx.globalAlpha=0.55;   // průchod cihlami
+      drawPlayerSprite(ctx,p.x,p.y,p.color,p.dir,p.anim); ctx.globalAlpha=1;
       if (tm && tm.frozen>0) drawIceBlock(ctx,p.x,p.y,tm.frozen); }
     else if (tm && !tm.left) {
       ctx.globalAlpha=0.35; drawPlayerSprite(ctx,p.x,p.y,p.color,{x:0,y:1},0); ctx.globalAlpha=1;
@@ -754,8 +771,10 @@ function draw(){
     document.getElementById('hud'+(i+1)).textContent=`${names[i]}: ${score[i]} ★  💣${p.maxBombs} 🔥${p.fire} 👟${p.speed.toFixed(1)}${p.kick?' 🦶':''}${p.alive?'':' ☠'}`;
   });
   // časomíra (výprava: uplynulý čas)
-  ctx.fillStyle=!coop&&roundTimer<=30?'#ff4040':'#fff'; ctx.font='bold 20px monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
-  const t=Math.max(0,coop?Math.floor(roundTimer):Math.ceil(roundTimer));
+  if (coop && coop.theme.dark) drawDarkness();
+  const surv = coop && coop.survive && coop.survive.left>0;   // level „vydržte“: místo uplynulého času odpočet
+  ctx.fillStyle=(!coop&&roundTimer<=30)||surv?'#ff4040':'#fff'; ctx.font='bold 20px monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  const t=Math.max(0,surv?Math.ceil(coop.survive.left):coop?Math.floor(roundTimer):Math.ceil(roundTimer));
   ctx.fillText(`${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`, canvas.width/2, T/2);
   if (coop) drawCoopBanner();
 }
@@ -775,6 +794,18 @@ function drawCoopItems(){
     ctx.strokeStyle=open?'#fff':'#666'; ctx.lineWidth=3; ctx.strokeRect(px+4,py+4,T-8,T-8);
     ctx.save(); ctx.translate(px+T/2,py+T/2); ctx.rotate(open?performance.now()/400:0); ctx.globalAlpha=open?1:0.5; ctx.fillText('🌀',0,2); ctx.restore();
   }
+  for (const r of coop.runes||[]){   // runa: kamenná deska s číslem; další v pořadí jemně svítí
+    const px=r.cx*T, py=r.cy*T, next=!r.lit && r.n===coop.runeNext;
+    ctx.fillStyle=r.lit?'#ffd34d':'#8a6a40'; ctx.beginPath(); ctx.roundRect(px+5,py+5,T-10,T-10,6); ctx.fill();
+    ctx.strokeStyle=r.lit?'#fff':next?`rgba(255,240,160,${0.5+0.5*Math.sin(performance.now()/150)})`:'#5a4020'; ctx.lineWidth=3; ctx.stroke();
+    ctx.fillStyle=r.lit?'#7a3a00':'#f0e0b0'; ctx.font='bold 30px "VT323", monospace'; ctx.fillText(String(r.n),px+T/2,py+T/2+1); ctx.font='30px serif';
+  }
+  for (const t of coop.torches||[]) drawTorch(t);
+  for (const c of coop.cages||[]) if (!c.saved) drawCage(c);
+  for (const q of coop.gems||[]) if (q.revealed && !q.taken){
+    const px=q.cx*T, py=q.cy*T, b=Math.sin(performance.now()/200+q.cx)*2;
+    ctx.save(); ctx.shadowColor='#a0e8ff'; ctx.shadowBlur=10; ctx.font='26px serif'; ctx.fillText('💎',px+T/2,py+T/2+b); ctx.restore();
+  }
   for (const k of coop.keys) if (k.revealed && !k.taken){
     const px=k.cx*T, py=k.cy*T; ctx.fillStyle='#ffe680'; ctx.fillRect(px+6,py+6,T-12,T-12); ctx.fillText('🔑',px+T/2,py+T/2+2);
   }
@@ -785,6 +816,28 @@ function drawCoopItems(){
     ctx.fillStyle='#ff9ad5'; for (let i=0;i<3;i++){ ctx.beginPath(); ctx.arc(px+12+i*12,py+T/2+2+Math.sin(performance.now()/200+i)*3,5,0,Math.PI*2); ctx.fill(); }
     for (let i=0;i<n.maxHp;i++){ ctx.fillStyle=i<n.hp?'#ff4d4d':'#333'; ctx.fillRect(px+8+i*11,py+4,9,5); }
   }
+}
+const ANIMALS = { bunny:'🐰', chick:'🐥', hedgehog:'🦔' };
+function drawCage(cg){
+  const px=cg.cx*T, py=cg.cy*T, hop=cg.open?Math.abs(Math.sin(performance.now()/180))*6:0;
+  ctx.font='26px serif'; ctx.fillText(ANIMALS[cg.animal]||'🐰', px+T/2, py+T/2+4-hop);
+  if (cg.open) { ctx.fillStyle='#fff'; ctx.font='bold 16px "VT323", monospace'; ctx.fillText('POMOC!', px+T/2, py-4+Math.sin(performance.now()/200)*2); ctx.font='30px serif'; return; }
+  ctx.strokeStyle='#9a8a6a'; ctx.lineWidth=3; ctx.strokeRect(px+5,py+6,T-10,T-11);
+  ctx.fillStyle='#6a5a3a'; ctx.fillRect(px+3,py+3,T-6,5); ctx.fillRect(px+3,py+T-7,T-6,5);
+  ctx.lineWidth=2.5; for (let i=1;i<5;i++){ ctx.beginPath(); ctx.moveTo(px+5+i*(T-10)/5,py+7); ctx.lineTo(px+5+i*(T-10)/5,py+T-6); ctx.stroke(); }
+  ctx.font='30px serif';
+}
+function drawTorch(t){
+  const px=t.cx*T, py=t.cy*T, x=px+T/2, lit=t.lit>0, now=performance.now();
+  ctx.fillStyle='#3a2a1a'; ctx.fillRect(x-4,py+16,8,T-20); ctx.fillStyle='#6a6a72'; ctx.fillRect(x-10,py+T-8,20,6);   // tyč a podstavec
+  ctx.fillStyle='#4a3a2a'; ctx.beginPath(); ctx.moveTo(x-11,py+12); ctx.lineTo(x+11,py+12); ctx.lineTo(x+6,py+20); ctx.lineTo(x-6,py+20); ctx.closePath(); ctx.fill();
+  if (lit) {
+    const f=1+0.15*Math.sin(now/70+t.cx);
+    ctx.save(); ctx.shadowColor='#ff9020'; ctx.shadowBlur=18;
+    ctx.fillStyle='#ff6020'; ctx.beginPath(); ctx.ellipse(x,py+6,8*f,11*f,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#ffe060'; ctx.beginPath(); ctx.ellipse(x,py+9,4*f,6*f,0,0,Math.PI*2); ctx.fill(); ctx.restore();
+    if (!coop.torchesDone) { const k=Math.max(0,Math.min(1,t.lit/(coop.torchMax||30))); ctx.fillStyle='#000'; ctx.fillRect(px+4,py+T-3,T-8,4); ctx.fillStyle=k<0.3?'#ff4040':'#ffb020'; ctx.fillRect(px+4,py+T-3,(T-8)*k,4); }
+  } else { ctx.fillStyle='rgba(200,200,220,.4)'; ctx.beginPath(); ctx.arc(x+Math.sin(now/400)*3,py+6,3,0,Math.PI*2); ctx.fill(); }   // jen kouřík
 }
 function drawWeb(c,x,y,a){
   c.save(); c.globalAlpha=0.75*a; c.strokeStyle='#f4f4ff'; c.lineWidth=1.5;
@@ -828,7 +881,8 @@ function drawCoopHud(){
   const names = p => mode===4 ? esc(p.name||('Hráč '+(p.id+1))) : 'Hráč '+(p.id+1);
   const rttTxt = p => { const r = mode===4 && net.rtt && net.rtt[p.id]; return r==null||r===false ? '' : ` <small style="color:${r<80?'#7cff5c':r<150?'#ffd34d':'#ff5c7a'}">📶${r}ms</small>`; };
   // mrtvý hráč: místo výbavy odpočet do návratu (vidí ho on i spoluhráč)
-  const status = p => { const tm = coop.team.find(t=>t.id===p.id); if (p.alive || !tm) return ` 💣${p.maxBombs} 🔥${p.fire}${p.kick?' 🦶':''}`;
+  const goldTxt = tm => { const g = tm && tm.gold && Coop.GOLD_TYPES[tm.gold]; return g ? ` <b style="color:#ffd700;text-shadow:0 0 6px #b08000">⭐${g.icon} ${g.name}</b>` : ''; };
+  const status = p => { const tm = coop.team.find(t=>t.id===p.id); if (p.alive || !tm) return ` 💣${p.maxBombs} 🔥${p.fire}${p.kick?' 🦶':''}${goldTxt(tm)}`;
     return tm.left ? ' (odešel)' : ` <b style="color:#fff">☠ vrátí se za ${Math.ceil(tm.respawn)} s (nebo ❤️)</b>`; };
   const parts = players.map(p => `<span style="color:${p.color}">${names(p)}${status(p)}${rttTxt(p)}</span>`);
   document.getElementById('hud1').innerHTML = `<span style="color:#ffb020">${esc(coop.name)} ${coop.level+1}/${coop.levelCount}</span> &nbsp; ★ ${coop.score} &nbsp; ☠ ${coop.deaths} &nbsp;·&nbsp; ` + parts.join(' &nbsp; ');
@@ -836,10 +890,12 @@ function drawCoopHud(){
 }
 function drawCoopBanner(){
   let title=null, sub=null, small=null;
-  const fresh = coop.intro>0 ? (coop.newcomers||[]) : [];
+  // úvod levelu: nové příšery i nové prvky (úkol, zlatý power-up…) – každý řádek s obrázkem a popisem
+  const fresh = coop.intro>0 ? [...(coop.newcomers||[]).map(type=>({type})), ...(coop.tips||[]).map(tip=>({tip}))] : [];
   if (coop.intro>0) { title=`LEVEL ${coop.level+1}: ${coop.name}`; sub=coop.sub; small='Úkol: '+coop.objective; }
   else if (coop.done==='level') { title='✔ HOTOVO!'; sub='Portál vás přenesl dál…'; }
   else if (coop.done==='won') { title='🏆 VÍTĚZSTVÍ!'; sub='Boss je poražen · skóre '+coop.score; }
+  if (!title && coop.goldNote) drawGoldNote(coop.goldNote);
   if (!title) {
     // po Wi-Fi: vlastní smrt velkým písmem uprostřed (ostatní vidí odpočet v HUD a nad tělem)
     const me = mode===4 && coop.team.find(t=>t.id===net.id);
@@ -859,12 +915,64 @@ function drawCoopBanner(){
   if (small) { ctx.fillStyle='#9fa8c7'; ctx.font='22px "VT323", monospace'; ctx.fillText(small, canvas.width/2, top+124); }
   // nové příšery v tomto levelu: obrázek + jméno + co umí
   if (fresh.length){
-    ctx.fillStyle='#7cff5c'; ctx.font='22px "VT323", monospace'; ctx.fillText('NOVÉ PŘÍŠERY', canvas.width/2, top+160);
-    fresh.forEach((type,i)=>{ const t=Coop.MONSTER_TYPES[type], y=top+192+i*LH, x0=T*1.6;
-      ctx.save(); ctx.translate(x0,y); ctx.scale(0.75,0.75); drawMonsterSprite(ctx,{type,x:0,y:0,dir:[1,0],anim:performance.now()/160,hp:t.hp,alive:true,z:0,eaten:0}); ctx.restore();
-      ctx.textAlign='left'; ctx.fillStyle='#ffd34d'; ctx.font='bold 24px "VT323", monospace'; ctx.fillText(t.name, x0+T*0.7, y); const nw=ctx.measureText(t.name).width;
-      ctx.fillStyle='#fff'; ctx.font='22px "VT323", monospace'; ctx.fillText('– '+t.desc, x0+T*0.7+nw+10, y); ctx.textAlign='center'; });
+    ctx.fillStyle='#7cff5c'; ctx.font='22px "VT323", monospace'; ctx.fillText(fresh.some(f=>f.type)?'NOVÉ PŘÍŠERY A VĚCI':'NOVÉ V TOMTO LEVELU', canvas.width/2, top+160);
+    fresh.forEach((f,i)=>{ const y=top+192+i*LH, x0=T*1.1; let name, desc;
+      if (f.type) { const t=Coop.MONSTER_TYPES[f.type]; name=t.name; desc=t.desc;
+        ctx.save(); ctx.translate(x0,y); ctx.scale(0.75,0.75); drawMonsterSprite(ctx,{type:f.type,x:0,y:0,dir:[1,0],anim:performance.now()/160,hp:t.hp,alive:true,z:0,eaten:0}); ctx.restore(); }
+      else { name=f.tip.name; desc=f.tip.desc; ctx.font='28px serif'; ctx.fillText(f.tip.icon, x0, y+2); }
+      ctx.textAlign='left'; ctx.fillStyle=f.tip?'#ffd700':'#ffd34d'; ctx.font='bold 24px "VT323", monospace'; ctx.fillText(name, x0+T*0.7, y); const nw=ctx.measureText(name).width;
+      ctx.fillStyle='#fff'; ctx.font='21px "VT323", monospace'; ctx.fillText('– '+desc, x0+T*0.7+nw+10, y, canvas.width-(x0+T*0.7+nw+10)-8); ctx.textAlign='center'; });
   }
+}
+
+// ---------- Zlaté power-upy (schopnosti viz coop.js GOLD_TYPES) ----------
+function drawGoldTile(c,px,py,kind){
+  const t=performance.now(), g=Coop.GOLD_TYPES[kind]||{icon:'⭐'}, pulse=1+0.07*Math.sin(t/140);
+  c.save();
+  c.shadowColor='#ffd700'; c.shadowBlur=14+6*Math.sin(t/200);
+  const gr=c.createLinearGradient(px,py,px+T,py+T); gr.addColorStop(0,'#fff3a0'); gr.addColorStop(0.45,'#ffc800'); gr.addColorStop(1,'#b07800');
+  c.fillStyle=gr; c.beginPath(); c.roundRect(px+4,py+4,T-8,T-8,8); c.fill();
+  c.shadowBlur=0; c.strokeStyle='#fff'; c.lineWidth=2; c.stroke();
+  c.strokeStyle='#7a5000'; c.lineWidth=1; c.beginPath(); c.roundRect(px+7,py+7,T-14,T-14,6); c.stroke();
+  // třpytky v rozích
+  c.fillStyle='#fff'; for (let i=0;i<2;i++){ const a=(Math.sin(t/180+i*2)+1)/2; c.globalAlpha=a; const sx=px+(i?T-10:10), sy=py+(i?T-10:10);
+    c.beginPath(); c.moveTo(sx,sy-5); c.lineTo(sx+1.5,sy-1.5); c.lineTo(sx+5,sy); c.lineTo(sx+1.5,sy+1.5); c.lineTo(sx,sy+5); c.lineTo(sx-1.5,sy+1.5); c.lineTo(sx-5,sy); c.lineTo(sx-1.5,sy-1.5); c.fill(); }
+  c.globalAlpha=1; c.font=Math.round(24*pulse)+'px serif'; c.textAlign='center'; c.textBaseline='middle'; c.fillText(g.icon,px+T/2,py+T/2+2);
+  c.restore();
+}
+function drawGoldAura(c,x,y,kind){   // hráč se zlatou schopností: zlatá záře a malá ikonka nad hlavou
+  const t=performance.now(); c.save();
+  c.strokeStyle=`rgba(255,215,0,${0.45+0.25*Math.sin(t/180)})`; c.lineWidth=3; c.beginPath(); c.ellipse(x,y+T*0.36,T*0.42,T*0.16,0,0,Math.PI*2); c.stroke();
+  if (kind==='shield') { c.strokeStyle=`rgba(140,220,255,${0.5+0.2*Math.sin(t/150)})`; c.lineWidth=2.5; c.beginPath(); c.arc(x,y-4,T*0.55,0,Math.PI*2); c.stroke(); }
+  const g=Coop.GOLD_TYPES[kind]; if (g) { c.font='16px serif'; c.textAlign='center'; c.textBaseline='middle'; c.fillText(g.icon,x+T*0.42,y-T*0.62); }
+  c.restore();
+}
+function drawGoldNote(n){   // kdo právě sebral zlatou schopnost a co umí (dole přes hrací plochu)
+  const g=Coop.GOLD_TYPES[n.kind]; if (!g) return;
+  const who = mode===4 ? ((players.find(p=>p.id===n.id)||{}).name || ('Hráč '+(n.id+1))) + (n.id===net.id?' (ty)':'') : 'Hráč '+(n.id+1);
+  const p=players.find(p=>p.id===n.id), a=Math.min(1,n.t/0.5), y0=canvas.height-128;
+  ctx.save(); ctx.globalAlpha=a;
+  ctx.fillStyle='rgba(30,20,0,.85)'; ctx.fillRect(0,y0,canvas.width,92); ctx.fillStyle='#ffd700'; ctx.fillRect(0,y0,canvas.width,3); ctx.fillRect(0,y0+89,canvas.width,3);
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle=p?p.color:'#fff'; ctx.font='bold 24px "VT323", monospace'; ctx.fillText('⭐ '+who+' má zlatou schopnost:', canvas.width/2, y0+20);
+  ctx.fillStyle='#ffd700'; ctx.font='bold 32px "VT323", monospace'; ctx.fillText(g.icon+' '+g.name.toUpperCase(), canvas.width/2, y0+48);
+  ctx.fillStyle='#fff'; ctx.font='21px "VT323", monospace'; ctx.fillText(g.desc+' · vydrží do dalších levelů, ztratíš ji smrtí', canvas.width/2, y0+75, canvas.width-16);
+  ctx.restore();
+}
+// Noční hřbitov: tma, světlo jen kolem hráčů, ohně, hořících pochodní a portálu
+let darkCanvas=null;
+function drawDarkness(){
+  if (!darkCanvas) { darkCanvas=document.createElement('canvas'); darkCanvas.width=canvas.width; darkCanvas.height=canvas.height; }
+  const d=darkCanvas.getContext('2d'); d.globalCompositeOperation='source-over'; d.clearRect(0,0,canvas.width,canvas.height);
+  d.fillStyle='rgba(2,4,16,0.72)'; d.fillRect(0,0,canvas.width,canvas.height);
+  d.globalCompositeOperation='destination-out';
+  const hole=(x,y,r)=>{ const g=d.createRadialGradient(x,y,r*0.25,x,y,r); g.addColorStop(0,'rgba(0,0,0,1)'); g.addColorStop(1,'rgba(0,0,0,0)'); d.fillStyle=g; d.beginPath(); d.arc(x,y,r,0,Math.PI*2); d.fill(); };
+  for (const p of players) if (p.alive) hole(p.x,p.y,T*2.6);
+  for (const f of fires) hole(f.cx*T+T/2,f.cy*T+T/2,T*1.2);
+  for (const t of coop.torches||[]) if (t.lit>0) hole(t.cx*T+T/2,t.cy*T+T/2,T*2.2*(0.95+0.05*Math.sin(performance.now()/90)));
+  if (coop.portal && coop.portal.open) hole(coop.portal.cx*T+T/2,coop.portal.cy*T+T/2,T*1.5);
+  for (const pr of coop.projectiles||[]) hole(pr.x,pr.y,T*0.7);
+  ctx.drawImage(darkCanvas,0,0);
 }
 
 function drawPlayerSprite(c,x,y,color,dir,anim){
@@ -908,6 +1016,41 @@ function monsterEyes(c,x,y,dx,r,gap){ r=r||5; gap=gap||6;
   c.fillStyle='#111'; c.beginPath(); c.arc(x-gap+dx*2,y+1,r/2,0,Math.PI*2); c.arc(x+gap+dx*2,y+1,r/2,0,Math.PI*2); c.fill(); }
 function monsterShadow(c,m,w){ c.fillStyle='rgba(0,0,0,.25)'; c.beginPath(); c.ellipse(m.x,m.y+T*0.36,T*(w||0.28),T*0.1,0,0,Math.PI*2); c.fill(); }
 const NEW_MONSTER_SPRITES = {
+  bat(c,m){   // netopýr: mává křídly, letí výš než ostatní (stín je menší)
+    const flap=Math.sin(m.anim*3), y=m.y-8+Math.sin(m.anim)*3, dx=m.dir[0]||0;
+    c.fillStyle='rgba(0,0,0,.2)'; c.beginPath(); c.ellipse(m.x,m.y+T*0.36,T*0.18,T*0.06,0,0,Math.PI*2); c.fill();
+    c.fillStyle='#5a3a8a';
+    for (const sd of [-1,1]){ c.beginPath(); c.moveTo(m.x+sd*6,y-2); c.quadraticCurveTo(m.x+sd*20,y-14*flap-6,m.x+sd*26,y-4*flap);
+      c.lineTo(m.x+sd*20,y+2); c.lineTo(m.x+sd*15,y-1); c.lineTo(m.x+sd*10,y+4); c.closePath(); c.fill(); }
+    c.fillStyle='#8a6ac8'; c.beginPath(); c.ellipse(m.x,y,9,11,0,0,Math.PI*2); c.fill();
+    c.beginPath(); c.moveTo(m.x-7,y-7); c.lineTo(m.x-5,y-16); c.lineTo(m.x-2,y-8); c.moveTo(m.x+7,y-7); c.lineTo(m.x+5,y-16); c.lineTo(m.x+2,y-8); c.fill();
+    c.fillStyle='#ffe040'; c.beginPath(); c.arc(m.x-3.5+dx*1.5,y-3,2.4,0,Math.PI*2); c.arc(m.x+3.5+dx*1.5,y-3,2.4,0,Math.PI*2); c.fill();
+    c.fillStyle='#fff'; c.beginPath(); c.moveTo(m.x-3,y+4); c.lineTo(m.x-1.5,y+7); c.lineTo(m.x,y+4); c.moveTo(m.x,y+4); c.lineTo(m.x+1.5,y+7); c.lineTo(m.x+3,y+4); c.fill();
+  },
+  mummy(c,m){   // mumie: obvazy; po zásahu rozmotaná (vlající pruh) a zrychlená
+    const bob=Math.sin(m.anim)*2, dx=m.dir[0]||0, un=m.unraveled;
+    monsterShadow(c,m);
+    c.fillStyle=un?'#d8c49a':'#e8dcb8'; c.beginPath(); c.roundRect(m.x-14,m.y-18+bob,28,36,10); c.fill();
+    c.strokeStyle='#a89870'; c.lineWidth=2; for (let i=0;i<6;i++){ c.beginPath(); c.moveTo(m.x-14,m.y-12+i*6+bob+(i%2?2:-1)); c.lineTo(m.x+14,m.y-12+i*6+bob+(i%2?-1:2)); c.stroke(); }
+    c.fillStyle='#1a1208'; c.fillRect(m.x-11,m.y-11+bob,22,7);
+    c.fillStyle=un?'#ff4040':'#7cff5c'; c.beginPath(); c.arc(m.x-5+dx*2,m.y-7.5+bob,2.4,0,Math.PI*2); c.arc(m.x+5+dx*2,m.y-7.5+bob,2.4,0,Math.PI*2); c.fill();
+    c.fillStyle='#e8dcb8'; c.beginPath(); c.arc(m.x-16,m.y+bob,4.5,0,Math.PI*2); c.arc(m.x+16,m.y+bob,4.5,0,Math.PI*2); c.fill();   // natažené ruce
+    if (un) { c.strokeStyle='#e8dcb8'; c.lineWidth=4; c.beginPath(); c.moveTo(m.x-dx*12,m.y+4+bob); c.quadraticCurveTo(m.x-dx*24,m.y+8+Math.sin(m.anim*3)*6,m.x-dx*30-(dx?0:12),m.y+16+bob); c.stroke(); }
+    for (let i=0;i<Coop.MONSTER_TYPES.mummy.hp;i++){ c.fillStyle=i<(m.hp||1)?'#ff4d4d':'#333'; c.fillRect(m.x-9+i*10,m.y-28+bob,8,4); }
+  },
+  bomber(c,m){   // bombík: kulatý jako bomba, s doutnákem a helmou; po položení bomby chvíli bliká (oheň ho nechytí)
+    if (m.safeT>0 && Math.floor(performance.now()/110)%2) c.globalAlpha=0.55;
+    const bob=Math.sin(m.anim)*2, dx=m.dir[0]||0;
+    monsterShadow(c,m);
+    c.fillStyle='#3a3a48'; c.beginPath(); c.arc(m.x,m.y+2+bob,17,0,Math.PI*2); c.fill();
+    c.fillStyle='#5a5a6a'; c.beginPath(); c.arc(m.x-6,m.y-5+bob,5,0,Math.PI*2); c.fill();
+    c.strokeStyle='#ddd'; c.lineWidth=3; c.beginPath(); c.moveTo(m.x+4,m.y-14+bob); c.quadraticCurveTo(m.x+10,m.y-24+bob,m.x+14,m.y-20+bob); c.stroke();
+    c.fillStyle=Math.floor(performance.now()/90)%2?'#ff0':'#f60'; c.beginPath(); c.arc(m.x+14,m.y-20+bob,4,0,Math.PI*2); c.fill();
+    c.fillStyle='#ff9020'; c.fillRect(m.x-12,m.y-4+bob,24,9);
+    c.fillStyle='#fff'; c.beginPath(); c.arc(m.x-5+dx*2,m.y+bob,3.5,0,Math.PI*2); c.arc(m.x+5+dx*2,m.y+bob,3.5,0,Math.PI*2); c.fill();
+    c.fillStyle='#111'; c.beginPath(); c.arc(m.x-5+dx*3,m.y+bob,1.8,0,Math.PI*2); c.arc(m.x+5+dx*3,m.y+bob,1.8,0,Math.PI*2); c.fill();
+    c.strokeStyle='#111'; c.lineWidth=2; c.beginPath(); c.arc(m.x,m.y+9+bob,5,0.2,Math.PI-0.2); c.stroke();
+  },
   frog(c,m){   // žabák: ve skoku je výš a stín se zmenšuje
     const z=m.z||0, y=m.y-z, sq=z>0?1.15:1+0.08*Math.sin(m.anim*2), dx=m.dir[0]||0;
     c.fillStyle='rgba(0,0,0,.25)'; c.beginPath(); c.ellipse(m.x,m.y+T*0.36,T*0.28*(1-z/(T*1.4)),T*0.1,0,0,Math.PI*2); c.fill();
@@ -1183,7 +1326,7 @@ function applySnapshot(s){
   for (let y=0;y<ROWS;y++) for (let x=0;x<COLS;x++) grid[y][x] = +s.g[y*COLS+x];
   bombs = s.b.map(([cx,cy,mx,my,timer]) => ({cx,cy,mx,my,timer,passable:[],moving:null,owner:-1,fire:0}));
   fires = s.f.map(([cx,cy,timer,kind]) => ({cx,cy,timer,kind}));
-  powerups = s.u.map(([cx,cy,kind]) => ({cx,cy,kind}));
+  powerups = s.u.map(([cx,cy,kind,gold]) => ({cx,cy,kind,gold}));
   roundTimer = s.t;
   const seen=new Set();
   for (const sp of s.p) {
