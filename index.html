@@ -346,9 +346,8 @@ function coopFrame(dt){
   syncCoopGlobals();
   if (!r) return;
   roundOver=true; const s=coopState;
-  if (r.done==='level') { const next=Coop.LEVELS[s.level+1]; showOverlay('✔ '+s.name+' – hotovo!', 'Skóre '+s.score+' · životů '+s.lives+' · další: '+next.name+' („'+next.sub+'“)', 'Další level', 'coopnext'); }
-  else if (r.done==='won') showOverlay('🏆 VÍTĚZSTVÍ!', 'Hráč 1 a Hráč 2 porazili bosse · skóre '+s.score, 'Zpět do menu', 'menu');
-  else showOverlay('☠ Konec výpravy', 'Padli jste v levelu '+(s.level+1)+' – '+s.name+' · skóre '+s.score, 'Zkusit level znovu', 'coopretry');
+  if (r.done==='level') { const next=Coop.LEVELS[s.level+1]; showOverlay('✔ '+s.name+' – hotovo!', 'Skóre '+s.score+' · smrtí '+s.deaths+' · další: '+next.name+' („'+next.sub+'“)', 'Další level', 'coopnext'); }
+  else showOverlay('🏆 VÍTĚZSTVÍ!', 'Hráč 1 a Hráč 2 porazili bosse · skóre '+s.score+' · smrtí '+s.deaths, 'Zpět do menu', 'menu');
 }
 // zvuky k událostem z enginu / coop.js (lokálně i ze sítě)
 function playEvents(evs){
@@ -659,7 +658,6 @@ function overlayAction(){
   const next=ov.dataset.next;
   if (next==='menu' || !mode){ mode=0; campaign=null; coopState=null; coop=null; showMenu(); }
   else if (next==='coopnext'){ startCoopLevel(coopState.level+1, Coop.carryOf(coopState)); }
-  else if (next==='coopretry'){ const c=Coop.carryOf(coopState); c.lives=coopState.maxLives; startCoopLevel(coopState.level, c); }
   else if (next==='next'){ campaign.level++; newLevel(true); }
   else if (next==='retry'){ const p=players[0]; p.maxBombs=Math.max(1,p.maxBombs-1); p.fire=Math.max(2,p.fire-1); newLevel(true); }
   else { newRound(); }
@@ -728,7 +726,7 @@ function draw(){
     else if (tm && !tm.left) {
       ctx.globalAlpha=0.35; drawPlayerSprite(ctx,p.x,p.y,p.color,{x:0,y:1},0); ctx.globalAlpha=1;
       ctx.font='bold 20px "VT323", monospace'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle='#fff';
-      ctx.fillText(tm.respawn>0 ? '⟳ '+Math.ceil(tm.respawn) : '☠', p.x, p.y-T*0.9);
+      ctx.fillText('⟳ '+Math.ceil(tm.respawn), p.x, p.y-T*0.9);
     }
   }
   // HUD
@@ -802,8 +800,11 @@ function drawBossSprite(c,b){
 function drawCoopHud(){
   const names = p => mode===4 ? esc(p.name||('Hráč '+(p.id+1))) : 'Hráč '+(p.id+1);
   const rttTxt = p => { const r = mode===4 && net.rtt && net.rtt[p.id]; return r==null||r===false ? '' : ` <small style="color:${r<80?'#7cff5c':r<150?'#ffd34d':'#ff5c7a'}">📶${r}ms</small>`; };
-  const parts = players.map(p => `<span style="color:${p.color}">${names(p)} 💣${p.maxBombs} 🔥${p.fire}${p.kick?' 🦶':''}${p.alive?'':' ☠'}${rttTxt(p)}</span>`);
-  document.getElementById('hud1').innerHTML = `<span style="color:#ffb020">${esc(coop.name)} ${coop.level+1}/${coop.levelCount}</span> &nbsp; ❤ ${coop.lives} &nbsp; ★ ${coop.score} &nbsp;·&nbsp; ` + parts.join(' &nbsp; ');
+  // mrtvý hráč: místo výbavy odpočet do návratu (vidí ho on i spoluhráč)
+  const status = p => { const tm = coop.team.find(t=>t.id===p.id); if (p.alive || !tm) return ` 💣${p.maxBombs} 🔥${p.fire}${p.kick?' 🦶':''}`;
+    return tm.left ? ' (odešel)' : ` <b style="color:#fff">☠ vrátí se za ${Math.ceil(tm.respawn)} s</b>`; };
+  const parts = players.map(p => `<span style="color:${p.color}">${names(p)}${status(p)}${rttTxt(p)}</span>`);
+  document.getElementById('hud1').innerHTML = `<span style="color:#ffb020">${esc(coop.name)} ${coop.level+1}/${coop.levelCount}</span> &nbsp; ★ ${coop.score} &nbsp; ☠ ${coop.deaths} &nbsp;·&nbsp; ` + parts.join(' &nbsp; ');
   document.getElementById('hud2').textContent = 'Úkol: ' + coop.objective + (mode===4 ? ' · ESC = odejít' : '');
 }
 function drawCoopBanner(){
@@ -811,8 +812,17 @@ function drawCoopBanner(){
   if (coop.intro>0) { title=`LEVEL ${coop.level+1}: ${coop.name}`; sub=coop.sub; small='Úkol: '+coop.objective; }
   else if (coop.done==='level') { title='✔ HOTOVO!'; sub='Portál vás přenesl dál…'; }
   else if (coop.done==='won') { title='🏆 VÍTĚZSTVÍ!'; sub='Boss je poražen · skóre '+coop.score; }
-  else if (coop.done==='lost') { title='☠ KONEC VÝPRAVY'; sub='Došly životy · skóre '+coop.score; }
-  if (!title) return;
+  if (!title) {
+    // po Wi-Fi: vlastní smrt velkým písmem uprostřed (ostatní vidí odpočet v HUD a nad tělem)
+    const me = mode===4 && coop.team.find(t=>t.id===net.id);
+    if (me && me.respawn>0 && !me.left) {
+      ctx.fillStyle='rgba(0,0,0,.55)'; ctx.fillRect(0,canvas.height/2-48,canvas.width,96);
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillStyle='#ff5c7a'; ctx.font='bold 36px "VT323", monospace'; ctx.fillText('☠ Vrátíš se za '+Math.ceil(me.respawn)+' s', canvas.width/2, canvas.height/2-14);
+      ctx.fillStyle='#9fa8c7'; ctx.font='22px "VT323", monospace'; ctx.fillText('Každá další smrt v levelu = delší čekání', canvas.width/2, canvas.height/2+22);
+    }
+    return;
+  }
   ctx.fillStyle='rgba(0,0,0,.7)'; ctx.fillRect(0,canvas.height/2-80,canvas.width,160);
   ctx.textAlign='center'; ctx.textBaseline='middle';
   ctx.fillStyle='#ffb020'; ctx.font='bold 40px "VT323", monospace'; ctx.fillText(title, canvas.width/2, canvas.height/2-34);
@@ -1002,7 +1012,7 @@ function netMessage(m){
     case 'state': applySnapshot(m.s); net.rtt = m.rtt || {}; break;
     case 'pong': { const ms = Math.round(performance.now() - m.ts); net.myRtt = ms; netSend({t:'rtt', ms}); break; }
     case 'coop_end': {
-      net.banner = { text: m.won ? '🏆 VÍTĚZSTVÍ! Boss poražen' : '☠ Konec výpravy v levelu '+m.level, sub: (m.won ? 'Hrdinové: '+m.names.join(', ')+' · skóre '+m.score : 'Skóre '+m.score)+' · návrat do lobby…' };
+      net.banner = { text: '🏆 VÍTĚZSTVÍ! Boss poražen', sub: 'Hrdinové: '+m.names.join(', ')+' · skóre '+m.score+(m.deaths!=null?' · smrtí '+m.deaths:'')+' · návrat do lobby…' };
       break; }
     case 'round_end': {
       net.score=m.score||{};
