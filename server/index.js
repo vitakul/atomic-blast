@@ -80,7 +80,7 @@ function coopTick(room) {
   if (result.done === 'level') { startCoopLevel(room, s.level + 1, Coop.carryOf(s)); return; }
   room.phase = 'between';
   const names = [...room.members.values()].map(m => m.name);
-  broadcast(room, { t: 'coop_end', won: result.done === 'won', level: s.level + 1, score: s.score, names });
+  broadcast(room, { t: 'coop_end', won: result.done === 'won', level: s.level + 1, score: s.score, deaths: s.deaths, names });
   room.pending = setTimeout(() => { room.pending = null; room.phase = 'lobby'; room.state = null; broadcast(room, lobbyInfo(room)); }, COOP_END_MS);
 }
 function startRound(room) {
