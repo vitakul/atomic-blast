@@ -358,6 +358,7 @@ function playEvents(evs){
     else if (e==='portal') { beep(700,0.2,'sine',0.06); setTimeout(()=>beep(1000,0.3,'sine',0.06),150); }
     else if (e==='bosshit') beep(120,0.25,'sawtooth',0.12); else if (e==='shoot') beep(420,0.08,'triangle',0.06);
     else if (e==='revive') beep(800,0.25,'sine',0.06); else if (e==='enrage') { beep(80,0.6,'sawtooth',0.15); }
+    else if (e==='reviveup') { beep(1000,0.12,'sine',0.06); setTimeout(()=>beep(1400,0.2,'sine',0.06),120); }
     else if (e==='levelup') { beep(600,0.15,'square',0.07); setTimeout(()=>beep(800,0.15,'square',0.07),150); setTimeout(()=>beep(1200,0.3,'square',0.07),300); }
     else if (e==='victory'||e==='bossdown') { [500,700,900,1200].forEach((f,i)=>setTimeout(()=>beep(f,0.3,'square',0.08),i*160)); }
     else if (e==='gameover') { beep(300,0.5,'sawtooth',0.1); setTimeout(()=>beep(200,0.8,'sawtooth',0.1),300); }
@@ -694,9 +695,11 @@ function draw(){
   // power-upy
   for (const u of powerups){
     const px=u.cx*T,py=u.cy*T;
-    ctx.fillStyle='#ffd34d'; ctx.fillRect(px+6,py+6,T-12,T-12);
-    ctx.font='26px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText({bomb:'💣',fire:'🔥',speed:'👟',kick:'🦶'}[u.kind],px+T/2,py+T/2+2);
+    const rev=u.kind==='revive', pulse=rev?1+0.08*Math.sin(performance.now()/120):1;
+    ctx.fillStyle=rev?'#ff4d6d':'#ffd34d'; ctx.fillRect(px+6,py+6,T-12,T-12);
+    if (rev) { ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.strokeRect(px+6,py+6,T-12,T-12); }
+    ctx.font=Math.round(26*pulse)+'px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText({bomb:'💣',fire:'🔥',speed:'👟',kick:'🦶',revive:'❤️'}[u.kind]||'?',px+T/2,py+T/2+2);
   }
   // bomby
   for (const b of bombs){
@@ -802,7 +805,7 @@ function drawCoopHud(){
   const rttTxt = p => { const r = mode===4 && net.rtt && net.rtt[p.id]; return r==null||r===false ? '' : ` <small style="color:${r<80?'#7cff5c':r<150?'#ffd34d':'#ff5c7a'}">📶${r}ms</small>`; };
   // mrtvý hráč: místo výbavy odpočet do návratu (vidí ho on i spoluhráč)
   const status = p => { const tm = coop.team.find(t=>t.id===p.id); if (p.alive || !tm) return ` 💣${p.maxBombs} 🔥${p.fire}${p.kick?' 🦶':''}`;
-    return tm.left ? ' (odešel)' : ` <b style="color:#fff">☠ vrátí se za ${Math.ceil(tm.respawn)} s</b>`; };
+    return tm.left ? ' (odešel)' : ` <b style="color:#fff">☠ vrátí se za ${Math.ceil(tm.respawn)} s (nebo ❤️)</b>`; };
   const parts = players.map(p => `<span style="color:${p.color}">${names(p)}${status(p)}${rttTxt(p)}</span>`);
   document.getElementById('hud1').innerHTML = `<span style="color:#ffb020">${esc(coop.name)} ${coop.level+1}/${coop.levelCount}</span> &nbsp; ★ ${coop.score} &nbsp; ☠ ${coop.deaths} &nbsp;·&nbsp; ` + parts.join(' &nbsp; ');
   document.getElementById('hud2').textContent = 'Úkol: ' + coop.objective + (mode===4 ? ' · ESC = odejít' : '');
@@ -819,7 +822,7 @@ function drawCoopBanner(){
       ctx.fillStyle='rgba(0,0,0,.55)'; ctx.fillRect(0,canvas.height/2-48,canvas.width,96);
       ctx.textAlign='center'; ctx.textBaseline='middle';
       ctx.fillStyle='#ff5c7a'; ctx.font='bold 36px "VT323", monospace'; ctx.fillText('☠ Vrátíš se za '+Math.ceil(me.respawn)+' s', canvas.width/2, canvas.height/2-14);
-      ctx.fillStyle='#9fa8c7'; ctx.font='22px "VT323", monospace'; ctx.fillText('Každá další smrt v levelu = delší čekání', canvas.width/2, canvas.height/2+22);
+      ctx.fillStyle='#9fa8c7'; ctx.font='22px "VT323", monospace'; ctx.fillText('…nebo ať parťák najde ❤️ pod cihlou. Každá další smrt = delší čekání.', canvas.width/2, canvas.height/2+22);
     }
     return;
   }

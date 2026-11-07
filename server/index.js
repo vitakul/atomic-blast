@@ -178,7 +178,8 @@ wss.on('connection', ws => {
       case 'leave': { leaveRoom(ws); break; }
       case 'ping': { send(ws, { t: 'pong', ts: msg.ts }); break; }
       case 'debug': { // jen pro automatické testy (AB_DEBUG=1): dokončí aktuální level výpravy
-        if (!process.env.AB_DEBUG || !c || !c.room.state || !c.room.state.coop) return; Coop.debugFinishLevel(c.room.state); break; }
+        if (!process.env.AB_DEBUG || !c || !c.room.state || !c.room.state.coop) return;
+        if (msg.what === 'revive') Coop.debugSpawnRevive(c.room.state, c.id); else Coop.debugFinishLevel(c.room.state); break; }
       case 'rtt': { if (!c) return; const m = c.room.members.get(ws); if (m) m.rtt = Math.max(0, Math.min(9999, Math.round(+msg.ms || 0))); break; }
     }
   });
