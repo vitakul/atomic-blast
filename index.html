@@ -64,6 +64,7 @@
   .settings .sopts button.active { background:#ffb020; color:#1a1a2e; }
   .settings .sopts button:disabled { cursor:default; opacity:.55; }
   .settings .sopts button:disabled.active { opacity:1; }
+  .settings .sopts.wide { flex-wrap:wrap; } .settings .sopts.wide button { flex:1 0 30%; }
 </style>
 </head>
 <body>
@@ -85,7 +86,7 @@
       <b class="p1">HRÁČ 1:</b> W A S D + MEZERNÍK &nbsp;·&nbsp; <b class="p2">HRÁČ 2:</b> ŠIPKY + ENTER<br>
       💣 VÍC BOMB &nbsp; 🔥 VĚTŠÍ PLAMEN &nbsp; 👟 RYCHLOST &nbsp; 🦶 KOPÁNÍ<br>
       ARÉNA: KDO PRVNÍ VYHRAJE 3 KOLA &nbsp;·&nbsp; KAMPAŇ: 3 ŽIVOTY, 🔑 + 🌀 POD CIHLAMI<br>
-      VÝPRAVA: 6 BLUDIŠŤ, SPOLEČNÉ ŽIVOTY, ÚKOLY A BOSS · TAKÉ PO WI-FI
+      VÝPRAVA: 11 BLUDIŠŤ, ÚKOLY A JEDEN Z PĚTI BOSSŮ · TAKÉ PO WI-FI
     </div>
     <div class="press">PRESS START</div>
   </div>
@@ -96,7 +97,7 @@
     <h2>SPOLEČNÁ VÝPRAVA</h2>
     <div class="help">DVA HRÁČI U JEDNÉ KLÁVESNICE · SPOLUPRACUJTE!<br>
       <b class="p1">HRÁČ 1:</b> W A S D + MEZERNÍK &nbsp;·&nbsp; <b class="p2">HRÁČ 2:</b> ŠIPKY + ENTER<br>
-      ŠEST BLUDIŠŤ, SPOLEČNÉ ŽIVOTY, ÚKOLY, NA KONCI BOSS</div>
+      JEDENÁCT BLUDIŠŤ, ÚKOLY, NA KONCI JEDEN Z PĚTI BOSSŮ</div>
     <div id="coopSettings" class="settings"></div>
     <button onclick="startGame(5)">VYRAZIT!</button>
     <button onclick="closeCoop()">ZPĚT DO MENU</button>
@@ -155,9 +156,10 @@ const ctx = canvas.getContext('2d');
 let grid, bombs, fires, powerups, players, mode, score, roundOver, roundTimer, lastTime, suddenDeath;
 let campaign = null, monsters = [];
 // Společná výprava: coopState = plný stav z coop.js (lokálně), coop = „pohled“ pro kreslení (lokálně i ze sítě)
-let coopState = null, coop = null, coopOpts = { difficulty: 'normal', friendlyFire: false };
+let coopState = null, coop = null, coopOpts = { difficulty: 'normal', friendlyFire: false, boss: 'random' };
 let keys = {}, pressed = {};   // pressed = stisky od posledního snímku (aby se neztratil krátký ťuk)
 window.addEventListener('keydown', e => {
+  if (victory && (e.code==='Enter'||e.code==='NumpadEnter')) { e.preventDefault(); e.stopImmediatePropagation(); if (victory.t>2) exitVictory(); return; }
   if (!e.repeat) pressed[e.code]=true;
   keys[e.code]=true;
   const overlayShown = document.getElementById('overlay').style.display==='flex';
@@ -318,9 +320,11 @@ function levelDone(){
 
 // ---------- Společná výprava (lokálně, 2 hráči u jedné klávesnice) ----------
 // Pravidla, levely, příšery a boss jsou v coop.js (sdílené se serverem); tady je jen vstup, zvuk a přepínání levelů.
+const BOSS_OPTS = [['random','🎲 NÁHODNÝ'], ...Coop.BOSS_KINDS.map(k => [k, Coop.BOSS_TYPES[k].icon+' '+Coop.BOSS_TYPES[k].short])];
 const COOP_SETTING_ROWS = [
   { key:'difficulty',   label:'OBTÍŽNOST',     opts:[['easy','LEHKÁ'],['normal','NORMÁLNÍ'],['hard','TĚŽKÁ']] },
   { key:'friendlyFire', label:'FRIENDLY FIRE', opts:[[false,'VYPNUTO'],[true,'ZAPNUTO']] },
+  { key:'boss',         label:'BOSS',          opts:BOSS_OPTS },
 ];
 function openCoop(){ document.getElementById('menu').style.display='none'; $('coopSetup').style.display='flex'; renderCoopSettings(); }
 function closeCoop(){ $('coopSetup').style.display='none'; showMenu(); }
@@ -329,7 +333,8 @@ function coopSetting(key, value){ coopOpts[key]=value; renderCoopSettings(); }
 function startCoopLevel(levelIdx, carry){
   const infos=[{id:0,name:'Hráč 1'},{id:1,name:'Hráč 2'}];
   coopState = Coop.createLevel(levelIdx, infos, coopOpts, carry);
-  campaign=null; roundOver=false; suddenDeath=null;
+  campaign=null; roundOver=false; suddenDeath=null; victory=null; fx.death=null; fx.parts=[]; fx.rings=[];
+  if (!carry) bossJingleDone=false;
   syncCoopGlobals();
 }
 // draw() kreslí z globálů – po každém kroku na ně namíříme pole ze stavu (filter je uvnitř nahrazuje)
@@ -344,10 +349,11 @@ function coopFrame(dt){
   const r = Coop.step(coopState, inputs, dt);
   playEvents(coopState.events);
   syncCoopGlobals();
+  coopFx(coopState.events); checkBossJingle();
   if (!r) return;
   roundOver=true; const s=coopState;
   if (r.done==='level') { const next=Coop.LEVELS[s.level+1]; showOverlay('✔ '+s.name+' – hotovo!', 'Skóre '+s.score+' · smrtí '+s.deaths+' · další: '+next.name+' („'+next.sub+'“)', 'Další level', 'coopnext'); }
-  else showOverlay('🏆 VÍTĚZSTVÍ!', 'Hráč 1 a Hráč 2 porazili bosse · skóre '+s.score+' · smrtí '+s.deaths, 'Zpět do menu', 'menu');
+  else startVictory(Coop.finalStats(s), false);   // epická koncová obrazovka (Enter = zpět do menu)
 }
 // zvuky k událostem z enginu / coop.js (lokálně i ze sítě)
 function playEvents(evs){
@@ -360,7 +366,7 @@ function playEvents(evs){
     else if (e==='revive') beep(800,0.25,'sine',0.06); else if (e==='enrage') { beep(80,0.6,'sawtooth',0.15); }
     else if (e==='reviveup') { beep(1000,0.12,'sine',0.06); setTimeout(()=>beep(1400,0.2,'sine',0.06),120); }
     else if (e==='levelup') { beep(600,0.15,'square',0.07); setTimeout(()=>beep(800,0.15,'square',0.07),150); setTimeout(()=>beep(1200,0.3,'square',0.07),300); }
-    else if (e==='victory'||e==='bossdown') { [500,700,900,1200].forEach((f,i)=>setTimeout(()=>beep(f,0.3,'square',0.08),i*160)); }
+    else if (e==='bossdown') { beep(60,0.8,'sawtooth',0.15); }   // zbytek obstará rozpad bosse (fx) a fanfára
     else if (e==='gameover') { beep(300,0.5,'sawtooth',0.1); setTimeout(()=>beep(200,0.8,'sawtooth',0.1),300); }
     else if (e==='nestdown') beep(100,0.5,'sawtooth',0.12);
     else if (e==='jump') { beep(300,0.08,'sine',0.05); setTimeout(()=>beep(520,0.1,'sine',0.05),60); }
@@ -383,6 +389,19 @@ function playEvents(evs){
     else if (e==='torch') beep(260,0.25,'sawtooth',0.06);
     else if (e==='torchout') beep(160,0.2,'sine',0.05);
     else if (e==='unravel') beep(240,0.3,'sawtooth',0.08);
+    // bossové
+    else if (e==='grow') beep(330,0.12,'triangle',0.05);
+    else if (e==='cut') { beep(900,0.06,'square',0.07); setTimeout(()=>beep(400,0.15,'sawtooth',0.07),50); }
+    else if (e==='clank') { beep(1800,0.05,'square',0.06); beep(1200,0.12,'triangle',0.06); }
+    else if (e==='poof') { beep(1400,0.08,'sine',0.05); setTimeout(()=>beep(700,0.12,'sine',0.04),60); }
+    else if (e==='vanish') { [1200,900,600].forEach((f,i)=>setTimeout(()=>beep(f,0.08,'sine',0.05),i*50)); }
+    else if (e==='teleport') { [600,900,1200,1600].forEach((f,i)=>setTimeout(()=>beep(f,0.07,'sine',0.05),i*40)); }
+    else if (e==='zap') { beep(1000,0.1,'square',0.05); setTimeout(()=>beep(1500,0.08,'square',0.04),50); }
+    else if (e==='twindown') { beep(300,0.2,'square',0.07); setTimeout(()=>beep(200,0.3,'square',0.07),120); }
+    else if (e==='twinup') { beep(200,0.12,'square',0.07); setTimeout(()=>beep(400,0.2,'square',0.07),100); }
+    else if (e==='windup') { beep(120,0.6,'sawtooth',0.07); }
+    else if (e==='stomp') { beep(45,0.6,'sawtooth',0.2); beep(70,0.4,'square',0.12); }
+    else if (e==='rock') beep(90+Math.random()*40,0.2,'triangle',0.1);
   }
 }
 
@@ -660,7 +679,7 @@ function backToMenu(){
   document.getElementById('overlay').style.display='none';
   if (document.activeElement) document.activeElement.blur();
   if (mode===4) { netSend({t:'leave'}); netDisconnect(); $('lobby').style.display='none'; }
-  clearPending(); mode=0; campaign=null; coopState=null; coop=null; roundOver=true; showMenu();
+  clearPending(); mode=0; campaign=null; coopState=null; coop=null; roundOver=true; victory=null; stopMusic(); fx.death=null; fx.parts=[]; fx.rings=[]; showMenu();
 }
 function endRound(winner){
   if (winner) score[winner.id]++;
@@ -744,7 +763,13 @@ function draw(){
   }
   // příšery
   for (const m of monsters) if (m.alive) drawMonsterSprite(ctx,m);
-  if (coop) { for (const pr of coop.projectiles) drawFireball(pr); if (coop.boss) drawBossSprite(ctx,coop.boss); }
+  if (coop) {
+    for (const pr of coop.projectiles) drawFireball(pr);
+    if (coop.boss) { lastBossView=coop.boss; drawGiantRocks(ctx, coop.boss.ex && coop.boss.ex.rk); drawBoss(ctx,coop.boss); }
+    else if (fx.death && fx.death.t<DEATH_BOOM) {   // poražený boss se třese, bliká a rozpadá
+      const d=fx.death, k=d.t/DEATH_BOOM; ctx.save(); ctx.globalAlpha=1-k*0.5;
+      drawBoss(ctx,d.boss,{jitter:4+k*10,white:Math.floor(d.t*12)%2===0}); ctx.restore(); }
+  }
   // hráči (výprava: oživovaný hráč bliká, mrtvý čeká průhledný s odpočtem)
   for (const p of players) {
     const tm = coop && coop.team.find(t=>t.id===p.id);
@@ -776,7 +801,11 @@ function draw(){
   ctx.fillStyle=(!coop&&roundTimer<=30)||surv?'#ff4040':'#fff'; ctx.font='bold 20px monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
   const t=Math.max(0,surv?Math.ceil(coop.survive.left):coop?Math.floor(roundTimer):Math.ceil(roundTimer));
   ctx.fillText(`${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`, canvas.width/2, T/2);
-  if (coop) drawCoopBanner();
+  if (coop) {
+    if (coop.boss) drawBossBar(coop.boss);
+    if (coop.intro<=0) drawBossSay(coop.bossSay, coop.bossType);
+    drawCoopBanner();
+  }
 }
 // ---------- Společná výprava: kreslení (z „pohledu“ coop – lokálně i ze sítě) ----------
 function drawCoopItems(){
@@ -847,6 +876,13 @@ function drawWeb(c,x,y,a){
   c.restore();
 }
 function drawFireball(pr){
+  if (pr.kind==='magic'){   // magická střela mága: fialová hvězdička se stopou
+    const now=performance.now(); ctx.save(); ctx.shadowColor='#ff60ff'; ctx.shadowBlur=14;
+    ctx.fillStyle='rgba(200,120,255,.4)'; ctx.beginPath(); ctx.arc(pr.x-pr.dx*12,pr.y-pr.dy*12,7,0,Math.PI*2); ctx.fill();
+    ctx.translate(pr.x,pr.y); ctx.rotate(now/90); ctx.fillStyle='#ffb0ff'; ctx.beginPath();
+    for (let i=0;i<10;i++){ const a=i*Math.PI/5, r=i%2?4:11; ctx.lineTo(Math.cos(a)*r,Math.sin(a)*r); } ctx.closePath(); ctx.fill(); ctx.restore();
+    return;
+  }
   if (pr.kind==='ice'){   // sněhová koule
     ctx.fillStyle='rgba(180,230,255,.45)'; ctx.beginPath(); ctx.arc(pr.x-pr.dx*10,pr.y-pr.dy*10,8,0,Math.PI*2); ctx.fill();
     ctx.fillStyle='#fff'; ctx.strokeStyle='#7ab8e0'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(pr.x,pr.y,10,0,Math.PI*2); ctx.fill(); ctx.stroke();
@@ -858,24 +894,476 @@ function drawFireball(pr){
   ctx.fillStyle=g; ctx.beginPath(); ctx.arc(pr.x,pr.y,14,0,Math.PI*2); ctx.fill();
   ctx.fillStyle='#ffd040'; ctx.beginPath(); ctx.arc(pr.x-pr.dx*6,pr.y-pr.dy*6,5,0,Math.PI*2); ctx.fill();
 }
-function drawBossSprite(c,b){
-  const bob=Math.sin(b.anim)*3, R=T*0.85, flash=b.hitCd>0.5;
+// ---------- Bossové: kreslení z jednotného pohledu (části z coop.js bossView – lokálně i ze sítě) ----------
+const BF = Coop.BF;
+let lastBossView = null;   // poslední podoba bosse – z ní se kreslí jeho rozpad po poražení
+function drawBoss(c, boss, opt){
+  opt = opt || {};
+  if (boss.type==='snake') { drawSnakeBoss(c, boss, opt); return; }
+  for (const p of boss.parts) {
+    c.save();
+    if (opt.jitter) c.translate((Math.random()-.5)*opt.jitter, (Math.random()-.5)*opt.jitter);
+    if (opt.white) c.filter='brightness(3)';
+    if (p.k==='bombus') drawBombus(c,p,boss);
+    else if (p.k==='wizard') drawWizard(c,p,boss);
+    else if (p.k==='fire' || p.k==='ice') drawTwin(c,p,boss);
+    else if (p.k==='giant') drawGiant(c,p,boss);
+    c.restore();
+  }
+}
+function drawBombus(c,b,boss){
+  const bob=Math.sin(b.anim)*3, R=T*0.85, flash=b.flags&BF.HIT, enraged=boss.enraged;
   c.fillStyle='rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(b.x,b.y+R*0.8,R*0.9,R*0.3,0,0,Math.PI*2); c.fill();
   c.lineWidth=3; c.strokeStyle='#1a0a14'; c.lineJoin='round';
-  // rohy
   c.fillStyle=flash?'#fff':'#ffd34d'; for (const sx of [-1,1]) { c.beginPath(); c.moveTo(b.x+sx*R*0.5,b.y-R*0.5+bob); c.lineTo(b.x+sx*R*0.95,b.y-R*1.15+bob); c.lineTo(b.x+sx*R*0.75,b.y-R*0.35+bob); c.closePath(); c.fill(); c.stroke(); }
-  // tělo
-  c.fillStyle=flash?'#fff':(b.enraged?'#d83050':'#7a2a9a'); c.beginPath(); c.arc(b.x,b.y+bob,R,0,Math.PI*2); c.fill(); c.stroke();
-  // ruce
+  c.fillStyle=flash?'#fff':(enraged?'#d83050':'#7a2a9a'); c.beginPath(); c.arc(b.x,b.y+bob,R,0,Math.PI*2); c.fill(); c.stroke();
   c.fillStyle=flash?'#fff':'#4a1a5a'; c.beginPath(); c.arc(b.x-R*1.05,b.y+R*0.2+bob-Math.sin(b.anim)*4,R*0.3,0,Math.PI*2); c.arc(b.x+R*1.05,b.y+R*0.2+bob+Math.sin(b.anim)*4,R*0.3,0,Math.PI*2); c.fill(); c.stroke();
-  // oči a tlama
   c.fillStyle='#fff'; c.beginPath(); c.ellipse(b.x-R*0.35+b.dir[0]*3,b.y-R*0.2+bob,R*0.22,R*0.28,0,0,Math.PI*2); c.ellipse(b.x+R*0.35+b.dir[0]*3,b.y-R*0.2+bob,R*0.22,R*0.28,0,0,Math.PI*2); c.fill();
-  c.fillStyle=b.enraged?'#ff2020':'#1a0a14'; c.beginPath(); c.arc(b.x-R*0.35+b.dir[0]*6,b.y-R*0.18+bob,R*0.1,0,Math.PI*2); c.arc(b.x+R*0.35+b.dir[0]*6,b.y-R*0.18+bob,R*0.1,0,Math.PI*2); c.fill();
+  c.fillStyle=enraged?'#ff2020':'#1a0a14'; c.beginPath(); c.arc(b.x-R*0.35+b.dir[0]*6,b.y-R*0.18+bob,R*0.1,0,Math.PI*2); c.arc(b.x+R*0.35+b.dir[0]*6,b.y-R*0.18+bob,R*0.1,0,Math.PI*2); c.fill();
   c.fillStyle='#1a0a14'; c.beginPath(); c.arc(b.x,b.y+R*0.35+bob,R*0.4,0,Math.PI); c.fill();
   c.fillStyle='#fff'; for (let i=-2;i<=2;i++){ c.beginPath(); c.moveTo(b.x+i*R*0.17-4,b.y+R*0.35+bob); c.lineTo(b.x+i*R*0.17+4,b.y+R*0.35+bob); c.lineTo(b.x+i*R*0.17,b.y+R*0.55+bob); c.fill(); }
-  // ukazatel životů
-  const w=T*2.2, x0=b.x-w/2, y0=b.y-R*1.45+bob;
-  c.fillStyle='#000'; c.fillRect(x0-2,y0-2,w+4,12); c.fillStyle='#500'; c.fillRect(x0,y0,w,8); c.fillStyle=b.enraged?'#ff4040':'#ff9040'; c.fillRect(x0,y0,w*b.hp/b.maxHp,8);
+}
+// Had: tělo z článků (od ocasu k hlavě), hlava bliká červeně, když je zranitelná
+function drawSnakeBoss(c, boss, opt){
+  const ps=boss.parts, n=ps.length, now=performance.now(), enr=boss.enraged;
+  const jit = () => opt.jitter ? (Math.random()-.5)*opt.jitter : 0;
+  c.save(); if (opt.white) c.filter='brightness(3)';
+  // páteř: tlustá čára přes všechny články
+  c.lineCap='round'; c.lineJoin='round'; c.strokeStyle=enr?'#7a2a10':'#1f5a24'; c.lineWidth=T*0.5;
+  c.beginPath(); ps.forEach((p,i)=> i?c.lineTo(p.x,p.y):c.moveTo(p.x,p.y)); c.stroke();
+  for (let i=n-1;i>=0;i--) {
+    const p=ps[i], x=p.x+jit(), y=p.y+jit();
+    c.fillStyle='rgba(0,0,0,.22)'; c.beginPath(); c.ellipse(x,y+T*0.3,T*0.3,T*0.1,0,0,Math.PI*2); c.fill();
+    if (p.k==='head') continue;
+    const r=T*(0.36-0.12*(i/Math.max(1,n-1)));
+    if (p.k==='tail') {   // špička ocasu
+      const d=p.dir, ang=Math.atan2(d[1],d[0]);
+      c.save(); c.translate(x,y); c.rotate(ang); c.fillStyle=enr?'#d8602a':'#3d9b45'; c.strokeStyle='#123a16'; c.lineWidth=2;
+      c.beginPath(); c.moveTo(r,-r); c.lineTo(-r*1.9,0); c.lineTo(r,r); c.closePath(); c.fill(); c.stroke(); c.restore(); continue; }
+    const wig=Math.sin(p.anim*1.3)*2;
+    c.fillStyle=i%2?(enr?'#e0703a':'#4caf50'):(enr?'#c0502a':'#3d9b45'); c.strokeStyle='#123a16'; c.lineWidth=2;
+    c.beginPath(); c.arc(x,y+wig,r,0,Math.PI*2); c.fill(); c.stroke();
+    c.fillStyle=enr?'#ffd040':'#d8e860'; c.beginPath(); c.arc(x,y+wig-r*0.25,r*0.32,0,Math.PI*2); c.fill();   // skvrna
+  }
+  const h=ps[0]; if (h) {
+    const x=h.x+jit(), y=h.y+jit(), d=h.dir, R=T*0.44, vuln=h.flags&BF.VULN, flash=h.flags&BF.HIT;
+    if (vuln) { const a=0.5+0.5*Math.sin(now/90); c.strokeStyle=`rgba(255,40,40,${a})`; c.lineWidth=5; c.beginPath(); c.arc(x,y,R+7,0,Math.PI*2); c.stroke(); }
+    // jazyk
+    if (Math.sin(h.anim*2)>0.2) { c.strokeStyle='#ff3050'; c.lineWidth=3; const tx=x+d[0]*R*1.6, ty=y+d[1]*R*1.6;
+      c.beginPath(); c.moveTo(x+d[0]*R*0.8,y+d[1]*R*0.8); c.lineTo(tx,ty); c.lineTo(tx+d[0]*6-d[1]*6,ty+d[1]*6+d[0]*6); c.moveTo(tx,ty); c.lineTo(tx+d[0]*6+d[1]*6,ty+d[1]*6-d[0]*6); c.stroke(); }
+    c.fillStyle=flash?'#fff':vuln?'#ff8a70':(enr?'#f08040':'#6fd06a'); c.strokeStyle='#123a16'; c.lineWidth=3;
+    c.beginPath(); c.ellipse(x,y,R*(d[0]?1.1:0.95),R*(d[1]?1.1:0.95),0,0,Math.PI*2); c.fill(); c.stroke();
+    // oči ve směru pohybu
+    const ox=-d[1], oy=d[0];
+    for (const sgn of [-1,1]) { const ex=x+d[0]*R*0.35+ox*sgn*R*0.42, ey=y+d[1]*R*0.35+oy*sgn*R*0.42;
+      c.fillStyle='#fff8a0'; c.beginPath(); c.arc(ex,ey,R*0.24,0,Math.PI*2); c.fill();
+      c.fillStyle='#111'; c.beginPath(); c.ellipse(ex+d[0]*2,ey+d[1]*2,R*0.07,R*0.2,Math.atan2(d[1],d[0]),0,Math.PI*2); c.fill(); }
+    if (vuln) { c.fillStyle='#fff'; c.font='bold 26px "VT323", monospace'; c.textAlign='center'; c.textBaseline='middle'; c.fillText('!', x, y-R-14+Math.sin(now/120)*3); }
+  }
+  c.restore();
+}
+function drawWizard(c,p,boss){
+  const now=performance.now(), bob=Math.sin(p.anim*0.8)*4, x=p.x, y=p.y+bob-4, flash=p.flags&BF.HIT, enr=boss.enraged;
+  let alpha=1;
+  if (p.flags&BF.FADE) alpha=0.25+0.25*Math.sin(now/40);
+  if (p.flags&BF.SHIMMER) { alpha=0.45; c.translate(Math.sin(now/25)*3,0); }
+  c.globalAlpha=alpha;
+  c.translate(p.x,p.y); c.scale(1.3,1.3); c.translate(-p.x,-p.y);   // mág je o kus větší než příšery
+  c.save(); c.shadowColor=enr?'#ff4080':'#a080ff'; c.shadowBlur=12; c.fillStyle='rgba(160,120,255,.18)'; c.beginPath(); c.arc(x,y+2,22,0,Math.PI*2); c.fill(); c.restore();
+  c.fillStyle='rgba(0,0,0,.25)'; c.beginPath(); c.ellipse(p.x,p.y+T*0.38,T*0.3,T*0.1,0,0,Math.PI*2); c.fill();
+  const robe=flash?'#fff':enr?'#c02a7a':'#6a3ae0', dark=enr?'#7a1050':'#3a2aa0';
+  c.lineWidth=2.5; c.strokeStyle='#120a22';
+  c.fillStyle=robe; c.beginPath(); c.moveTo(x-8,y-4); c.lineTo(x+8,y-4); c.lineTo(x+18,y+24); c.lineTo(x-18,y+24); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle='#ffd34d'; for (const [sx,sy] of [[-7,10],[6,16],[-2,20]]) { c.beginPath(); c.arc(x+sx,y+sy,1.8,0,Math.PI*2); c.fill(); }
+  c.fillStyle=flash?'#fff':'#f0c8a0'; c.beginPath(); c.arc(x,y-10,9,0,Math.PI*2); c.fill(); c.stroke();
+  c.fillStyle='#fff'; c.beginPath(); c.moveTo(x-8,y-7); c.lineTo(x+8,y-7); c.lineTo(x,y+12); c.closePath(); c.fill();   // vousy
+  c.fillStyle=enr?'#ff2020':'#111'; c.beginPath(); c.arc(x-3.5+p.dir[0]*1.5,y-12,1.8,0,Math.PI*2); c.arc(x+3.5+p.dir[0]*1.5,y-12,1.8,0,Math.PI*2); c.fill();
+  c.fillStyle=flash?'#fff':dark; c.beginPath(); c.moveTo(x-14,y-15); c.lineTo(x+14,y-15); c.lineTo(x+4+Math.sin(p.anim)*2,y-44); c.closePath(); c.fill(); c.stroke();   // klobouk
+  c.fillStyle='#ffd34d'; c.font='12px serif'; c.textAlign='center'; c.textBaseline='middle'; c.fillText('★',x+1,y-25);
+  // hůl s koulí (pravý mág ji při kouzlení rozzáří)
+  const cast=p.flags&BF.CAST, sx=x+17, orb=cast?9+3*Math.sin(now/40):6;
+  c.strokeStyle='#6a4020'; c.lineWidth=3.5; c.beginPath(); c.moveTo(sx,y+24); c.lineTo(sx,y-18); c.stroke();
+  c.save(); c.shadowColor=cast?'#ff60ff':'#b080ff'; c.shadowBlur=cast?22:10; c.fillStyle=cast?'#ffb0ff':'#c0a0ff'; c.beginPath(); c.arc(sx,y-22,orb,0,Math.PI*2); c.fill(); c.restore();
+  c.globalAlpha=1;
+}
+function drawTwin(c,p,boss){
+  const now=performance.now(), fire=p.k==='fire', down=p.flags&BF.DOWN, flash=p.flags&BF.HIT, enr=boss.enraged;
+  const bob=down?0:Math.sin(p.anim)*3, x=p.x, y=p.y+bob;
+  c.fillStyle='rgba(0,0,0,.25)'; c.beginPath(); c.ellipse(p.x,p.y+T*0.36,T*0.32,T*0.1,0,0,Math.PI*2); c.fill();
+  c.save();
+  if (down) { c.translate(x,y+8); c.scale(1.15,0.55); c.translate(-x,-y); c.globalAlpha=0.75; }
+  const body=flash?'#fff':down?(fire?'#8a5a4a':'#6a8a9a'):fire?(enr?'#ff3010':'#ff6a20'):(enr?'#40a0ff':'#7ad0ff');
+  // vlasy: plameny / ledové krystaly
+  if (fire) { for (let i=-1;i<=1;i++){ const f=1+0.25*Math.sin(now/70+i*2); c.fillStyle=i?'#ffb020':'#ffe060';
+      c.beginPath(); c.moveTo(x+i*9-7,y-12); c.lineTo(x+i*9+7,y-12); c.lineTo(x+i*9,y-12-16*f); c.closePath(); c.fill(); } }
+  else { c.fillStyle='#e8f8ff'; c.strokeStyle='#5aa0d0'; c.lineWidth=1.5; for (let i=-1;i<=1;i++){ c.beginPath(); c.moveTo(x+i*10-5,y-12); c.lineTo(x+i*10+5,y-12); c.lineTo(x+i*10,y-28+Math.abs(i)*4); c.closePath(); c.fill(); c.stroke(); } }
+  c.fillStyle=body; c.strokeStyle='#1a0a0a'; c.lineWidth=3; c.beginPath(); c.arc(x,y,19,0,Math.PI*2); c.fill(); c.stroke();
+  if (down) { c.strokeStyle='#111'; c.lineWidth=2.5; for (const sx of [-7,7]) { c.beginPath(); c.moveTo(x+sx-4,y-7); c.lineTo(x+sx+4,y+1); c.moveTo(x+sx+4,y-7); c.lineTo(x+sx-4,y+1); c.stroke(); } }
+  else {
+    c.fillStyle='#fff'; c.beginPath(); c.arc(x-7,y-3,5.5,0,Math.PI*2); c.arc(x+7,y-3,5.5,0,Math.PI*2); c.fill();
+    c.fillStyle='#111'; c.beginPath(); c.arc(x-7+p.dir[0]*2,y-3+p.dir[1]*2,2.6,0,Math.PI*2); c.arc(x+7+p.dir[0]*2,y-3+p.dir[1]*2,2.6,0,Math.PI*2); c.fill();
+    c.strokeStyle='#111'; c.lineWidth=2.5; c.beginPath(); c.moveTo(x-12,y-11); c.lineTo(x-3,y-8); c.moveTo(x+12,y-11); c.lineTo(x+3,y-8); c.stroke();   // zamračené obočí
+    c.beginPath(); c.arc(x,y+11,5,Math.PI+0.3,-0.3); c.stroke();
+  }
+  c.restore();
+  if (down) {   // hvězdičky a odpočet do zvednutí
+    c.font='14px serif'; c.textAlign='center'; c.textBaseline='middle';
+    for (let i=0;i<3;i++){ const a=now/300+i*2.1; c.fillText('⭐', x+Math.cos(a)*18, y-16+Math.sin(a)*6); }
+    c.fillStyle=p.n<=2?'#ff4040':'#fff'; c.font='bold 24px "VT323", monospace'; c.fillText('⟳ '+p.n, x, y-34);
+  } else { for (let i=0;i<p.n;i++){ c.fillStyle=fire?'#ff8030':'#60c0ff'; c.fillRect(x-(p.n*9)/2+i*9,y-36,7,5); } }
+}
+function drawGiant(c,p,boss){
+  const now=performance.now(), R=T*0.92, flash=p.flags&BF.HIT, dazed=p.flags&BF.DAZED, wind=p.flags&BF.WINDUP, enr=boss.enraged;
+  const lift=wind?-12:0, bob=dazed?0:Math.sin(p.anim*0.7)*2, x=p.x, y=p.y+bob+lift;
+  c.fillStyle='rgba(0,0,0,.32)'; c.beginPath(); c.ellipse(p.x,p.y+R*0.85,R*(wind?0.7:0.95),R*0.28,0,0,Math.PI*2); c.fill();
+  const stone=flash?'#fff':'#8a8f98', dark=flash?'#ddd':'#5a5e66';
+  c.lineWidth=3; c.strokeStyle='#22242a'; c.lineJoin='round';
+  // nohy (při nápřahu jedna zvednutá)
+  c.fillStyle=dark; c.fillRect(x-R*0.6,y+R*0.45,R*0.45,R*0.45-(wind?0:0)); c.strokeRect(x-R*0.6,y+R*0.45,R*0.45,R*0.45);
+  const ly=wind?-R*0.35:0; c.fillRect(x+R*0.15,y+R*0.45+ly,R*0.45,R*0.45); c.strokeRect(x+R*0.15,y+R*0.45+ly,R*0.45,R*0.45);
+  // tělo – hranatý balvan
+  c.fillStyle=stone; c.beginPath();
+  const pts=[[-0.9,-0.2],[-0.7,-0.8],[-0.2,-1.0],[0.45,-0.9],[0.9,-0.4],[0.95,0.3],[0.6,0.65],[-0.6,0.65],[-0.95,0.25]];
+  pts.forEach(([a,b],i)=> i?c.lineTo(x+a*R,y+b*R):c.moveTo(x+a*R,y+b*R)); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle=flash?'#fff':'#6a8a4a'; c.beginPath(); c.ellipse(x-R*0.45,y-R*0.75,R*0.25,R*0.1,-0.3,0,Math.PI*2); c.fill();   // mech
+  c.fillStyle=dark; for (const [a,b,r] of [[0.4,0.2,0.12],[-0.5,0.3,0.09],[0.1,-0.55,0.08]]) { c.beginPath(); c.arc(x+a*R,y+b*R,r*R,0,Math.PI*2); c.fill(); }
+  if (enr && !flash) { c.strokeStyle=`rgba(255,${100+80*Math.sin(now/120)|0},0,.9)`; c.lineWidth=3; c.beginPath(); c.moveTo(x-R*0.3,y-R*0.9); c.lineTo(x-R*0.1,y-R*0.4); c.lineTo(x-R*0.35,y); c.moveTo(x+R*0.6,y-R*0.5); c.lineTo(x+R*0.3,y+R*0.1); c.stroke(); c.strokeStyle='#22242a'; c.lineWidth=3; }
+  // pěsti
+  c.fillStyle=stone; const arm=wind?-R*0.5:Math.sin(p.anim)*3;
+  c.beginPath(); c.arc(x-R*1.05,y+R*0.15+arm,R*0.3,0,Math.PI*2); c.fill(); c.stroke(); c.beginPath(); c.arc(x+R*1.05,y+R*0.15+arm,R*0.3,0,Math.PI*2); c.fill(); c.stroke();
+  // oči
+  if (dazed) { c.strokeStyle='#111'; c.lineWidth=3; for (const sx of [-0.35,0.35]) { const ex=x+sx*R, ey=y-R*0.35; c.beginPath(); c.moveTo(ex-6,ey-6); c.lineTo(ex+6,ey+6); c.moveTo(ex+6,ey-6); c.lineTo(ex-6,ey+6); c.stroke(); } }
+  else { c.save(); c.shadowColor=enr?'#ff3000':'#ffd040'; c.shadowBlur=10; c.fillStyle=enr?'#ff5020':'#ffe060';
+    c.fillRect(x-R*0.45+p.dir[0]*3,y-R*0.42,R*0.22,R*0.12); c.fillRect(x+R*0.23+p.dir[0]*3,y-R*0.42,R*0.22,R*0.12); c.restore(); }
+  c.fillStyle='#22242a'; c.fillRect(x-R*0.3,y+R*0.1,R*0.6,R*0.12);   // pusa
+  if (wind) { c.fillStyle=Math.floor(now/120)%2?'#ff3030':'#fff'; c.font='bold 40px "VT323", monospace'; c.textAlign='center'; c.textBaseline='middle'; c.fillText('!', x, y-R*1.35); }
+  if (dazed) {
+    c.font='16px serif'; c.textAlign='center'; c.textBaseline='middle';
+    for (let i=0;i<4;i++){ const a=now/250+i*Math.PI/2; c.fillText('⭐', x+Math.cos(a)*R*0.75, y-R*1.05+Math.sin(a)*8); }
+    c.save(); c.strokeStyle=`rgba(255,230,80,${0.5+0.4*Math.sin(now/90)})`; c.lineWidth=4; c.beginPath(); c.arc(x,y,R*1.15,0,Math.PI*2); c.stroke(); c.restore();
+    c.fillStyle='#ffe060'; c.font='bold 20px "VT323", monospace'; c.fillText('OMRÁČENÝ! '+p.n, x, y+R*1.25);
+  }
+}
+function drawGiantRocks(c, rk){
+  for (const [cx,cy,t] of rk||[]) {
+    const x=cx*T+T/2, y=cy*T+T/2, k=Math.max(0,Math.min(1,1-t/1.3));
+    c.fillStyle=`rgba(0,0,0,${0.2+0.4*k})`; c.beginPath(); c.ellipse(x,y+6,T*0.18+T*0.22*k,T*0.08+T*0.1*k,0,0,Math.PI*2); c.fill();
+    c.strokeStyle=`rgba(255,60,60,${0.4+0.4*Math.sin(performance.now()/80)})`; c.lineWidth=2; c.strokeRect(cx*T+4,cy*T+4,T-8,T-8);
+    const ry=y-t*260; if (ry<-T) continue;
+    c.fillStyle='#7a7a82'; c.strokeStyle='#2a2a30'; c.lineWidth=2.5;
+    c.beginPath(); c.moveTo(x-14,ry); c.lineTo(x-6,ry-13); c.lineTo(x+10,ry-11); c.lineTo(x+15,ry+2); c.lineTo(x+6,ry+12); c.lineTo(x-10,ry+10); c.closePath(); c.fill(); c.stroke();
+  }
+}
+// ukazatel životů bosse – dole přes spodní zeď (u mága nic neprozradí, kde je pravý)
+function drawBossBar(boss){
+  const t=Coop.BOSS_TYPES[boss.type], y0=canvas.height-T, now=performance.now();
+  ctx.fillStyle='rgba(10,0,10,.82)'; ctx.fillRect(0,y0,canvas.width,T);
+  ctx.fillStyle=boss.enraged?'#ff3040':'#ffb020'; ctx.fillRect(0,y0,canvas.width,3);
+  ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.font='22px serif'; ctx.fillText(t.icon, 10, y0+T/2+1);
+  ctx.fillStyle='#fff'; ctx.font='bold 22px "VT323", monospace'; ctx.fillText(t.name, 42, y0+T/2-8, 300);
+  ctx.font='18px "VT323", monospace'; ctx.fillStyle=boss.enraged&&Math.floor(now/250)%2?'#ff4050':'#9fa8c7';
+  let info=boss.enraged?'😡 ZUŘÍ!':'';
+  if (boss.type==='snake') { const len=boss.parts.length; info=(len<=3?'🎯 HLAVA ZRANITELNÁ!':'✂️ článků: '+len)+(boss.enraged?' · ZUŘÍ!':''); }
+  ctx.fillText(info, 42, y0+T/2+12);
+  const bx=360, bw=canvas.width-bx-14;
+  const bar=(x,w,y,h,k,col)=>{ ctx.fillStyle='#000'; ctx.fillRect(x-2,y-2,w+4,h+4); ctx.fillStyle='#401018'; ctx.fillRect(x,y,w,h); ctx.fillStyle=col; ctx.fillRect(x,y,w*Math.max(0,k),h);
+    ctx.fillStyle='rgba(255,255,255,.25)'; ctx.fillRect(x,y,w*Math.max(0,k),3); for (let i=1;i<10;i++){ ctx.fillStyle='rgba(0,0,0,.35)'; ctx.fillRect(x+w*i/10,y,1,h); } };
+  if (boss.type==='twins' && boss.ex && boss.ex.th) {
+    const half=(bw-30)/2; ctx.font='18px serif';
+    boss.ex.th.forEach((hp,i)=>{ const x=bx+i*(half+30); ctx.fillText(i?'❄️':'🔥', x-2, y0+T/2+1); bar(x+22,half-22,y0+T/2-8,16,hp/boss.ex.tm,i?'#60c0ff':'#ff7030'); });
+  } else bar(bx,bw,y0+T/2-9,18,boss.hp/boss.maxHp,boss.enraged?'#ff4040':'#ff9040');
+}
+// hláška bosse: retro dialogové okno nahoře
+function drawBossSay(say, type){
+  if (!say || !say.text) return;
+  const t=Coop.BOSS_TYPES[type]||{icon:'👹'}, shown=Math.max(0,2.8-say.t), n=Math.min(say.text.length, Math.floor(shown*40));
+  const a=Math.min(1, say.t/0.3);
+  ctx.save(); ctx.globalAlpha=a;
+  ctx.font='bold 24px "VT323", monospace'; const w=Math.min(canvas.width-40, ctx.measureText(say.text).width+90), x0=(canvas.width-w)/2, y0=56;
+  ctx.fillStyle='rgba(20,5,20,.9)'; ctx.fillRect(x0,y0,w,40); ctx.strokeStyle='#fff'; ctx.lineWidth=3; ctx.strokeRect(x0,y0,w,40);
+  ctx.strokeStyle='#ff5c7a'; ctx.lineWidth=1; ctx.strokeRect(x0+4,y0+4,w-8,32);
+  ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.font='24px serif'; ctx.fillText(t.icon, x0+12, y0+21);
+  ctx.font='bold 24px "VT323", monospace'; ctx.fillStyle='#ffe060'; ctx.fillText('„'+say.text.slice(0,n)+(n<say.text.length?'▌':'“'), x0+46, y0+21, w-56);
+  ctx.restore();
+}
+
+// ---------- Efekty: otřesy, záblesky, částice ----------
+const fx = { shake:0, flash:0, flashColor:'#fff', parts:[], rings:[], death:null, banner:0 };
+function fxBurst(x,y,n,colors,speed,life,size,grav){
+  for (let i=0;i<n;i++){ const a=Math.random()*Math.PI*2, v=speed*(0.3+Math.random()*0.7);
+    fx.parts.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:life*(0.6+Math.random()*0.6),max:life,size:size*(0.6+Math.random()*0.8),color:colors[Math.floor(Math.random()*colors.length)],grav:grav||0}); }
+  if (fx.parts.length>900) fx.parts.splice(0, fx.parts.length-900);
+}
+function fxShake(m){ fx.shake=Math.max(fx.shake,m); }
+function fxFlash(a,color){ fx.flash=Math.max(fx.flash,a); fx.flashColor=color||'#fff'; }
+const BOSS_COLORS = { bombus:['#7a2a9a','#ffd34d','#d83050','#fff'], snake:['#4caf50','#3d9b45','#d8e860','#6fd06a'], wizard:['#4a2a9a','#ffd34d','#c0a0ff','#fff'],
+  twins:['#ff6a20','#ffe060','#7ad0ff','#e8f8ff'], giant:['#8a8f98','#5a5e66','#6a8a4a','#ffe060'] };
+function bossCenter(b){ if (!b || !b.parts.length) return null; const p=b.parts[0]; if (b.type==='twins') { const q=b.parts[1]||p; return {x:(p.x+q.x)/2,y:(p.y+q.y)/2}; } return {x:p.x,y:p.y}; }
+// reakce obrazu na události ze hry (volá se lokálně i po síti, až je „coop“ aktuální)
+function coopFx(evs){
+  if (!coop || !evs) return;
+  const b=coop.boss||lastBossView, c=bossCenter(b);
+  for (const e of evs) {
+    if (e==='bosshit') { fxShake(6); if (c) fxBurst(c.x,c.y-10,14,['#fff','#ffd040','#ff6020'],180,0.45,4); }
+    else if (e==='stomp') { fxShake(16); if (c) { fxBurst(c.x,c.y+30,30,['#a89070','#7a6a50','#ccc'],220,0.7,5,300); fx.rings.push({x:c.x,y:c.y+30,r:10,life:0.5,max:0.5,color:'#d8c8a0'}); } }
+    else if (e==='rock') fxShake(4);
+    else if (e==='enrage') { fxShake(10); fxFlash(0.35,'#ff2020'); }
+    else if (e==='cut') { fxShake(4); for (const [x,y] of coop.snakeBits||[]) fxBurst(x,y,8,BOSS_COLORS.snake,140,0.5,4); }
+    else if (e==='poof') { for (const [x,y] of coop.poofs||[]) fxBurst(x,y,18,['#c0a0ff','#fff','#ff80ff'],120,0.6,4); }
+    else if (e==='teleport' || e==='vanish') { if (c && e==='vanish') fxBurst(c.x,c.y,16,['#c0a0ff','#fff'],100,0.5,3); }
+    else if (e==='twindown') fxShake(6);
+    else if (e==='bossdown') startBossDeath(b);
+  }
+  // pojistka: událost se mohla ztratit (např. boss padl mimo krok simulace) – stačí, že stav hlásí poraženého bosse
+  if (coop.bossDeath && coop.done==='won' && !fx.death && lastBossView) startBossDeath(lastBossView);
+}
+const DEATH_BOOM = 2.6;   // za kolik sekund od poražení boss definitivně vybuchne
+function startBossDeath(b){
+  if (fx.death || !b) return;
+  fx.death = { t:0, boss:b, type:b.type, c:bossCenter(b), nextPop:0, boomed:false };
+  stopMusic(); fxFlash(0.6); fxShake(12);
+}
+function fxUpdate(dt){
+  fx.shake=Math.max(0,fx.shake-dt*40); fx.flash=Math.max(0,fx.flash-dt*1.6);
+  for (const p of fx.parts){ p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=p.grav*dt; p.vx*=0.985; p.vy*=0.985; p.life-=dt; }
+  fx.parts=fx.parts.filter(p=>p.life>0);
+  for (const r of fx.rings){ r.r+=dt*(r.speed||420); r.life-=dt; } fx.rings=fx.rings.filter(r=>r.life>0);
+  const d=fx.death; if (!d) return;
+  d.t+=dt;
+  const cols=BOSS_COLORS[d.type]||BOSS_COLORS.bombus;
+  if (d.t<DEATH_BOOM) {
+    fxShake(3+d.t*3);
+    d.nextPop-=dt;
+    if (d.nextPop<=0) { d.nextPop=0.09+Math.random()*0.08;
+      const parts=d.boss.parts, p=parts[Math.floor(Math.random()*parts.length)]||d.c;
+      const x=p.x+(Math.random()-.5)*T*1.4, y=p.y+(Math.random()-.5)*T*1.4;
+      fxBurst(x,y,16,['#fff','#ffe060','#ff8020','#ff3010'],200,0.5,5); fx.rings.push({x,y,r:4,life:0.25,max:0.25,color:'#fff8c0',speed:240});
+      beep(80+Math.random()*120,0.25,'sawtooth',0.07); }
+  } else if (!d.boomed) {
+    d.boomed=true; fxFlash(0.8); fxShake(28);
+    const pts=d.boss.parts.length?d.boss.parts:[d.c];
+    for (const p of pts) fxBurst(p.x,p.y,Math.max(12,Math.round(140/pts.length)),cols.concat(['#fff','#ffe060','#ff6020']),420,1.4,7,260);
+    fxBurst(d.c.x,d.c.y,80,['#fff','#ffe060','#ff8020','#ff3010','#ffd0a0'],520,1.1,6);
+    fx.rings.push({x:d.c.x,y:d.c.y,r:10,life:1.1,max:1.1,color:'#fff',speed:620}, {x:d.c.x,y:d.c.y,r:4,life:0.9,max:0.9,color:'#ffb020',speed:420});
+    bigBoom(); playMusic([SONG_FANFARE, SONG_VICTORY]);
+  }
+}
+function fxDraw(c){
+  for (const r of fx.rings){ c.strokeStyle=r.color; c.globalAlpha=Math.max(0,r.life/r.max); c.lineWidth=6*r.life/r.max+1; c.beginPath(); c.arc(r.x,r.y,r.r,0,Math.PI*2); c.stroke(); }
+  for (const p of fx.parts){ c.globalAlpha=Math.max(0,Math.min(1,p.life/p.max*1.5)); c.fillStyle=p.color; const s=p.size*(0.5+0.5*p.life/p.max); c.fillRect(p.x-s/2,p.y-s/2,s,s); }
+  c.globalAlpha=1;
+  const d=fx.death;
+  if (d && d.t>DEATH_BOOM+0.5) {   // nápis po výbuchu
+    const k=Math.min(1,(d.t-DEATH_BOOM-0.5)/0.4);
+    c.fillStyle=`rgba(0,0,0,${0.45*k})`; c.fillRect(0,canvas.height/2-70,canvas.width,140);
+    pixelText(c,'BOSS PORAŽEN!',canvas.width/2,canvas.height/2-40,Math.round(4+2*k),d.t,{wave:4});
+    c.fillStyle='#fff'; c.font='26px "VT323", monospace'; c.textAlign='center'; c.textBaseline='middle';
+    c.fillText((Coop.BOSS_TYPES[d.type]||{name:''}).name+' je na prach!', canvas.width/2, canvas.height/2+44);
+  }
+}
+function fxFlashDraw(){ if (fx.flash>0){ ctx.globalAlpha=Math.min(1,fx.flash); ctx.fillStyle=fx.flashColor; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.globalAlpha=1; } }
+
+// ---------- Retro pixelové písmo (5×7, s háčky a čárkami) pro velké nadpisy ----------
+const PF = {
+  A:['.###.','#...#','#...#','#####','#...#','#...#','#...#'], B:['####.','#...#','#...#','####.','#...#','#...#','####.'], C:['.###.','#...#','#....','#....','#....','#...#','.###.'],
+  D:['####.','#...#','#...#','#...#','#...#','#...#','####.'], E:['#####','#....','#....','####.','#....','#....','#####'], F:['#####','#....','#....','####.','#....','#....','#....'],
+  G:['.###.','#...#','#....','#.###','#...#','#...#','.###.'], H:['#...#','#...#','#...#','#####','#...#','#...#','#...#'], I:['.###.','..#..','..#..','..#..','..#..','..#..','.###.'],
+  J:['..###','...#.','...#.','...#.','#..#.','#..#.','.##..'], K:['#...#','#..#.','#.#..','##...','#.#..','#..#.','#...#'], L:['#....','#....','#....','#....','#....','#....','#####'],
+  M:['#...#','##.##','#.#.#','#.#.#','#...#','#...#','#...#'], N:['#...#','##..#','#.#.#','#..##','#...#','#...#','#...#'], O:['.###.','#...#','#...#','#...#','#...#','#...#','.###.'],
+  P:['####.','#...#','#...#','####.','#....','#....','#....'], Q:['.###.','#...#','#...#','#...#','#.#.#','#..#.','.##.#'], R:['####.','#...#','#...#','####.','#.#..','#..#.','#...#'],
+  S:['.####','#....','#....','.###.','....#','....#','####.'], T:['#####','..#..','..#..','..#..','..#..','..#..','..#..'], U:['#...#','#...#','#...#','#...#','#...#','#...#','.###.'],
+  V:['#...#','#...#','#...#','#...#','#...#','.#.#.','..#..'], W:['#...#','#...#','#...#','#.#.#','#.#.#','##.##','#...#'], X:['#...#','#...#','.#.#.','..#..','.#.#.','#...#','#...#'],
+  Y:['#...#','#...#','.#.#.','..#..','..#..','..#..','..#..'], Z:['#####','....#','...#.','..#..','.#...','#....','#####'], '!':['..#..','..#..','..#..','..#..','..#..','.....','..#..'],
+};
+const PF_MARK = { '´':['...#.','..#..','.....'], 'ˇ':['.#.#.','..#..','.....'], '°':['..#..','.#.#.','..#..'] };
+const PF_MAP = { Á:'A´', Č:'Cˇ', Ď:'Dˇ', É:'E´', Ě:'Eˇ', Í:'I´', Ň:'Nˇ', Ó:'O´', Ř:'Rˇ', Š:'Sˇ', Ť:'Tˇ', Ú:'U´', Ů:'U°', Ý:'Y´', Ž:'Zˇ' };
+const PF_COLORS = ['#fff6a0','#fff6a0','#fff6a0','#ffe860','#ffd040','#ffb020','#ff9010','#ff7000','#e05000','#c03800'];
+function pixelText(c, text, cx, y, px, t, opt){
+  opt=opt||{}; const chars=[...String(text).toUpperCase()], w=chars.length*6*px-px, x0=Math.round(cx-w/2);
+  for (const pass of [0,1]) chars.forEach((ch,i)=>{
+    let base=ch, mark=null; if (PF_MAP[ch]) { base=PF_MAP[ch][0]; mark=PF_MAP[ch][1]; }
+    const g=PF[base]; if (!g) return;
+    const rows=(mark?PF_MARK[mark]:['.....','.....','.....']).concat(g);
+    const gy=Math.round(y+(opt.wave?Math.sin(t*4+i*0.55)*opt.wave:0)), gx=x0+i*6*px;
+    rows.forEach((row,r)=>{ for (let col=0;col<5;col++) if (row[col]==='#') {
+      if (pass===0) { c.fillStyle='#2a0a00'; c.fillRect(gx+col*px+px*0.6,gy+r*px+px*0.6,px,px); c.fillStyle='#000'; c.fillRect(gx+col*px-1,gy+r*px-1,px+2,px+2); }
+      else { c.fillStyle=opt.color||PF_COLORS[r]; c.fillRect(gx+col*px,gy+r*px,px,px); c.fillStyle='rgba(255,255,255,.35)'; c.fillRect(gx+col*px,gy+r*px,px,Math.max(1,px/4)); } } });
+  });
+}
+
+// ---------- Hudba: chiptune sekvencer přes Web Audio (oscilátory, žádné soubory) ----------
+// Zápis: „C5:2“ = nota C5 na 2 osminy, „-:1“ = pauza; bicí: K (kopák), S (virbl), H (činel).
+function ensureAudio(){
+  try { audio = audio || new (window.AudioContext||window.webkitAudioContext)(); if (audio.state==='suspended') audio.resume(); } catch(e){}
+  return audio;
+}
+window.addEventListener('keydown', ensureAudio);   // AudioContext smí začít hrát až po gestu uživatele
+window.addEventListener('pointerdown', ensureAudio);
+function noteFreq(n){ const m=/^([A-G])([#b]?)(\d)$/.exec(n); if (!m) return 0;
+  const semi={C:0,D:2,E:4,F:5,G:7,A:9,B:11}[m[1]]+(m[2]==='#'?1:m[2]==='b'?-1:0); return 440*Math.pow(2,(semi+(+m[3]-4)*12-9)/12); }
+function parseTrack(str){ let t=0; const out=[]; for (const tok of str.trim().split(/\s+/)) { const [n,d]=tok.split(':'); const dur=+d||1; if (n!=='-') out.push({t, d:dur, n}); t+=dur; } return { ev:out, len:t }; }
+function rep(str,n){ return Array(n).fill(str).join(' '); }
+const SONG_FANFARE = { bpm:150, tracks:[
+  { wave:'square', vol:0.09, notes:'G4:1 C5:1 E5:1 G5:3 E5:1 G5:2 A5:2 G5:2 E5:2 C5:2 D5:2 E5:2 C6:6 -:5' },
+  { wave:'square', vol:0.05, notes:'E4:1 G4:1 C5:1 E5:3 C5:1 E5:2 F5:2 E5:2 C5:2 A4:2 B4:2 B4:2 E5:6 -:5' },
+  { wave:'triangle', vol:0.16, notes:'C3:4 C3:4 F3:4 F3:4 G3:4 G3:4 C3:6 -:2' },
+  { drum:true, vol:0.12, notes:'K:1 H:1 H:1 K:3 S:2 K:2 S:2 K:2 S:2 K:1 S:1 K:1 S:1 K:6 -:5' } ] };
+const SONG_VICTORY = { bpm:140, loop:true, tracks:[
+  { wave:'square', vol:0.07, notes:'E5:2 G5:2 C6:2 G5:2 A5:2 E5:2 C5:2 E5:2 F5:2 A5:2 C6:3 A5:1 G5:2 F5:1 E5:1 D5:4 '+
+                                   'E5:2 G5:2 C6:2 E6:2 D6:2 C6:2 A5:4 F5:1 G5:1 A5:2 G5:2 F5:2 D5:2 B4:2 C5:4' },
+  { wave:'square', vol:0.035, notes:rep('C5:1 E5:1 G5:1 E5:1',2)+' '+rep('A4:1 C5:1 E5:1 C5:1',2)+' '+rep('F4:1 A4:1 C5:1 A4:1',2)+' '+rep('G4:1 B4:1 D5:1 B4:1',2)+' '+
+                                    rep('C5:1 E5:1 G5:1 E5:1',2)+' '+rep('A4:1 C5:1 E5:1 C5:1',2)+' '+rep('F4:1 A4:1 C5:1 A4:1',2)+' '+rep('G4:1 B4:1 D5:1 B4:1',2) },
+  { wave:'triangle', vol:0.16, notes:rep(rep('C3:1 C4:1 G3:1 C4:1',2)+' '+rep('A2:1 A3:1 E3:1 A3:1',2)+' '+rep('F2:1 F3:1 C3:1 F3:1',2)+' '+rep('G2:1 G3:1 D3:1 G3:1',2),2) },
+  { drum:true, vol:0.1, notes:rep('K:1 H:1 S:1 H:1 K:1 K:1 S:1 H:1',8) } ] };
+const SONG_BOSS_INTRO = { bpm:132, tracks:[
+  { wave:'square', vol:0.08, notes:'E4:1 -:1 E4:1 F4:1 E4:1 -:1 B3:2 C4:1 B3:1 Bb3:1 A3:5 E5:1 D#5:1 E5:4' },
+  { wave:'triangle', vol:0.18, notes:'E2:2 E2:2 E2:2 F2:2 E2:2 F2:2 E2:4 E3:2 E2:2' },
+  { drum:true, vol:0.12, notes:'K:2 K:2 K:2 S:2 K:2 S:2 K:1 S:1 S:1 S:1 K:4' } ] };
+const music = { timer:null, songs:null, idx:0, start:0, nodes:[] };
+let noiseBuf=null;
+function getNoise(){ if (!noiseBuf) { noiseBuf=audio.createBuffer(1,audio.sampleRate*0.5,audio.sampleRate); const d=noiseBuf.getChannelData(0); for (let i=0;i<d.length;i++) d[i]=Math.random()*2-1; } return noiseBuf; }
+function playNote(wave,f,t0,dur,vol){
+  const o=audio.createOscillator(), g=audio.createGain(); o.type=wave; o.frequency.setValueAtTime(f,t0);
+  g.gain.setValueAtTime(0.0001,t0); g.gain.linearRampToValueAtTime(vol,t0+0.008); g.gain.setValueAtTime(vol*0.75,t0+Math.min(0.06,dur*0.3)); g.gain.linearRampToValueAtTime(0.0001,t0+dur*0.95);
+  o.connect(g); g.connect(audio.destination); o.start(t0); o.stop(t0+dur); music.nodes.push(o);
+}
+function playDrum(kind,t0,vol){
+  if (kind==='K') { const o=audio.createOscillator(), g=audio.createGain(); o.type='sine'; o.frequency.setValueAtTime(150,t0); o.frequency.exponentialRampToValueAtTime(40,t0+0.12);
+    g.gain.setValueAtTime(vol*2.2,t0); g.gain.exponentialRampToValueAtTime(0.0001,t0+0.15); o.connect(g); g.connect(audio.destination); o.start(t0); o.stop(t0+0.16); music.nodes.push(o); return; }
+  const s=audio.createBufferSource(), g=audio.createGain(), f=audio.createBiquadFilter(); s.buffer=getNoise();
+  f.type=kind==='H'?'highpass':'bandpass'; f.frequency.value=kind==='H'?7000:1800; const len=kind==='H'?0.04:0.14;
+  g.gain.setValueAtTime(kind==='H'?vol*0.5:vol*1.3,t0); g.gain.exponentialRampToValueAtTime(0.0001,t0+len);
+  s.connect(f); f.connect(g); g.connect(audio.destination); s.start(t0); s.stop(t0+len+0.01); music.nodes.push(s);
+}
+// přehraje písničky za sebou (poslední se opakuje, pokud má loop) – plánuje noty dopředu po malých kouscích
+function playMusic(songs){
+  if (!ensureAudio()) return; stopMusic();
+  music.songs=songs.map(sg=>{ const tr=sg.tracks.map(t=>({...t, ...parseTrack(t.notes)})); return { ...sg, tr, step:60/sg.bpm/2, len:Math.max(...tr.map(t=>t.len)) }; });
+  music.idx=0; music.start=audio.currentTime+0.06; music.cursor=0;
+  const tick=()=>{
+    const sg=music.songs[music.idx]; if (!sg) { stopMusic(); return; }
+    const horizon=audio.currentTime+0.25;
+    while (true) {
+      const tStep=music.start+music.cursor*sg.step; if (tStep>horizon) break;
+      for (const tr of sg.tr) for (const e of tr.ev) if (e.t===music.cursor) {
+        if (tr.drum) playDrum(e.n,tStep,tr.vol); else playNote(tr.wave,noteFreq(e.n),tStep,e.d*sg.step,tr.vol); }
+      music.cursor++;
+      if (music.cursor>=sg.len) { music.start+=sg.len*sg.step; music.cursor=0;
+        if (!(sg.loop && music.idx===music.songs.length-1)) { music.idx++; if (!music.songs[music.idx]) { music.timer && clearInterval(music.timer); music.timer=null; return; } } break; }
+    }
+    if (music.nodes.length>400) music.nodes.splice(0,200);
+  };
+  tick(); music.timer=setInterval(tick,50);
+}
+function stopMusic(){
+  if (music.timer) clearInterval(music.timer); music.timer=null; music.songs=null;
+  const now=audio?audio.currentTime:0; for (const n of music.nodes) { try { n.stop(now); } catch(e){} } music.nodes=[];
+}
+function bigBoom(){
+  if (!ensureAudio()) return; const t0=audio.currentTime;
+  const s=audio.createBufferSource(), g=audio.createGain(), f=audio.createBiquadFilter(); s.buffer=getNoise(); s.loop=true;
+  f.type='lowpass'; f.frequency.setValueAtTime(1800,t0); f.frequency.exponentialRampToValueAtTime(80,t0+1.4);
+  g.gain.setValueAtTime(0.5,t0); g.gain.exponentialRampToValueAtTime(0.0001,t0+1.6); s.connect(f); f.connect(g); g.connect(audio.destination); s.start(t0); s.stop(t0+1.7);
+  beep(55,1.2,'sawtooth',0.18); beep(38,1.5,'triangle',0.2);
+}
+let bossJingleDone=false;
+function checkBossJingle(){
+  const bossLevel = coop && coop.level===coop.levelCount-1;
+  if (bossLevel && coop.intro>0 && !bossJingleDone) { bossJingleDone=true; playMusic([SONG_BOSS_INTRO]); }
+  else if (!bossLevel) bossJingleDone=false;
+}
+
+// ---------- Vítězná obrazovka po poražení bosse ----------
+let victory=null;
+function startVictory(stats, isNet){
+  victory={ t:0, stats, net:isNet, rockets:[], sparks:[], nextRocket:0.3, starsShown:0,
+    sky:Array.from({length:90},()=>({x:Math.random()*canvas.width,y:Math.random()*canvas.height,s:Math.random()*2+0.5,p:Math.random()*6})) };
+  fx.death=null; fx.parts=[]; fx.rings=[];
+  if (!music.songs) playMusic([SONG_FANFARE, SONG_VICTORY]);
+  $('hud1').innerHTML='<span style="color:#ffd700">🏆 VÝPRAVA DOKONČENA!</span>'; $('hud2').textContent=isNet?'Enter = zpět do lobby':'Enter = zpět do menu';
+}
+function exitVictory(){
+  const v=victory; victory=null; stopMusic(); fx.death=null; fx.parts=[]; fx.rings=[];
+  if (v && v.net) { mode=0; roundOver=true; coop=null; $('lobby').style.display='flex'; }
+  else backToMenu();
+}
+function fmtTime(s){ s=Math.max(0,Math.round(s)); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); }
+function victoryCredits(st){
+  const lines=['★ ATOMIC BLAST ★','SPOLEČNÁ VÝPRAVA','','HRDINOVÉ',...st.players.map(p=>p.name),'','PORAŽENÝ BOSS',st.bossName,'',
+    'OBTÍŽNOST',({easy:'LEHKÁ',normal:'NORMÁLNÍ',hard:'TĚŽKÁ'})[st.difficulty]||'',''];
+  if (st.fullRun) lines.push('PROŠLI JSTE VŠECH 11 BLUDIŠŤ','');
+  lines.push('NÁPADY A TESTOVÁNÍ','CELÁ RODINA','','PROGRAM','TÁTA A CLAUDE','','HUDBA','8BITOVÝ SYNTEZÁTOR V PROHLÍŽEČI','','VYROBENO DOMA S LÁSKOU','',
+    'ZKUSTE TO ZNOVU – ČEKÁ VÁS','JINÝ BOSS!','','DĚKUJEME ZA HRANÍ!','','','');
+  return lines;
+}
+function drawVictory(dt){
+  const v=victory, st=v.stats, W=canvas.width, H=canvas.height, t=v.t; v.t+=dt;
+  // nebe s hvězdami
+  const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#0a0420'); g.addColorStop(0.6,'#1a0a3a'); g.addColorStop(1,'#3a0a2a');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  for (const s of v.sky){ ctx.globalAlpha=0.4+0.6*Math.abs(Math.sin(t*1.5+s.p)); ctx.fillStyle='#fff'; ctx.fillRect(s.x,s.y,s.s,s.s); } ctx.globalAlpha=1;
+  // ohňostroj
+  v.nextRocket-=dt;
+  if (v.nextRocket<=0) { v.nextRocket=0.35+Math.random()*0.6; v.rockets.push({x:60+Math.random()*(W-120),y:H,vy:-(380+Math.random()*160),fuse:0.7+Math.random()*0.5,hue:Math.floor(Math.random()*360)}); }
+  for (const r of v.rockets){ r.y+=r.vy*dt; r.vy+=120*dt; r.fuse-=dt; ctx.fillStyle='#ffe0a0'; ctx.fillRect(r.x-1.5,r.y,3,8);
+    if (r.fuse<=0) { r.dead=true; for (let i=0;i<46;i++){ const a=i/46*Math.PI*2, sp=120+Math.random()*90;
+      v.sparks.push({x:r.x,y:r.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:1.2+Math.random()*0.5,color:`hsl(${r.hue+Math.random()*40},100%,${60+Math.random()*25}%)`}); }
+      if (t>0.5) beep(180+Math.random()*120,0.18,'triangle',0.035); } }
+  v.rockets=v.rockets.filter(r=>!r.dead);
+  for (const p of v.sparks){ p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=90*dt; p.vx*=0.98; p.life-=dt; ctx.globalAlpha=Math.max(0,Math.min(1,p.life)); ctx.fillStyle=p.color; ctx.fillRect(p.x-2,p.y-2,4,4); }
+  ctx.globalAlpha=1; v.sparks=v.sparks.filter(p=>p.life>0);
+  // úvodní záblesk
+  if (t<0.6) { ctx.globalAlpha=1-t/0.6; ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H); ctx.globalAlpha=1; }
+  // nadpis padá shora a vlní se
+  const drop=Math.min(1,t/0.7), ty=-80+(30+80)*(1-Math.pow(1-drop,3));
+  pixelText(ctx,'VÍTĚZSTVÍ!',W/2,ty,7,t,{wave:5});
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  const bt=Coop.BOSS_TYPES[st.boss]||{icon:'👹'};
+  if (t>0.6) { ctx.fillStyle='#fff'; ctx.font='bold 30px "VT323", monospace'; ctx.fillText(bt.icon+'  '+st.bossName+' JE PORAŽEN!  '+bt.icon, W/2, 120); }
+  // hvězdičky hodnocení
+  const starT=[1.1,1.5,1.9];
+  for (let i=0;i<3;i++){ const shown=t>starT[i]; const sx=W/2+(i-1)*62, sy=162;
+    if (shown && v.starsShown<=i) { v.starsShown=i+1; if (i<st.stars) { beep(880+i*220,0.15,'square',0.06); setTimeout(()=>beep(1320+i*220,0.2,'square',0.05),90); fxVictoryStar(v,sx,sy); } else beep(220,0.15,'triangle',0.05); }
+    const k=shown?Math.min(1,(t-starT[i])/0.25):0, sc=k<1?0.3+k*1.0:1+0.06*Math.sin(t*4+i);
+    drawPixelStar(ctx,sx,sy,22*sc,i<st.stars&&shown?'#ffd700':'#3a3050'); }
+  const rank=['','VYTRVALÍ HRDINOVÉ','STATEČNÍ HRDINOVÉ','LEGENDÁRNÍ HRDINOVÉ'][st.stars];
+  if (t>2.2) { ctx.fillStyle='#ffd700'; ctx.font='bold 26px "VT323", monospace'; ctx.fillText(rank, W/2, 200); }
+  // statistiky výpravy (čísla naskakují)
+  if (t>2.4) {
+    const k=Math.min(1,(t-2.4)/1.2), cnt=n=>Math.round(n*k);
+    ctx.fillStyle='rgba(10,5,30,.78)'; ctx.fillRect(40,222,W-80,190); ctx.strokeStyle='#ffb020'; ctx.lineWidth=3; ctx.strokeRect(40,222,W-80,190);
+    const goldAll=st.players.reduce((a,p)=>a+p.golds.length,0);
+    const top=[['⏱ ČAS', fmtTime(st.time*k)], ['👾 PŘÍŠERY', cnt(st.kills)], ['☠ SMRTI', cnt(st.deaths)], ['⭐ ZLATÉ', cnt(goldAll)], ['★ SKÓRE', cnt(st.score)]];
+    top.forEach(([l,val],i)=>{ const x=40+(W-80)*(i+0.5)/5; ctx.fillStyle='#9fa8c7'; ctx.font='20px "VT323", monospace'; ctx.fillText(l,x,242); ctx.fillStyle='#fff'; ctx.font='bold 28px "VT323", monospace'; ctx.fillText(String(val),x,268); });
+    ctx.fillStyle='#ffb020'; ctx.fillRect(56,288,W-112,2);
+    // hráči: jméno, smrti, příšery, zásahy bosse, zlaté schopnosti
+    const cols=[70,300,380,470,560]; ctx.font='19px "VT323", monospace'; ctx.fillStyle='#9fa8c7'; ctx.textAlign='left';
+    ['HRDINA','☠','👾','💥 BOSS','⭐ ZLATÉ'].forEach((h,i)=>ctx.fillText(h,cols[i],304));
+    st.players.slice(0,3).forEach((p,i)=>{ const y=332+i*28; ctx.fillStyle=p.color||'#fff'; ctx.font='bold 24px "VT323", monospace';
+      ctx.fillText((st.lastHit===p.id?'💥 ':'')+p.name,cols[0],y,220); ctx.fillStyle='#fff'; ctx.fillText(String(cnt(p.deaths)),cols[1],y); ctx.fillText(String(cnt(p.kills)),cols[2],y); ctx.fillText(String(cnt(p.hits)),cols[3],y);
+      ctx.font='18px serif'; ctx.fillText(p.golds.slice(-5).map(gk=>(Coop.GOLD_TYPES[gk]||{icon:'⭐'}).icon).join('')||'–',cols[4],y); });
+    ctx.textAlign='center';
+  }
+  const hero=st.players.find(p=>p.id===st.lastHit);
+  if (t>3.6 && hero) { ctx.fillStyle=hero.color||'#fff'; ctx.font='bold 24px "VT323", monospace'; ctx.fillText('💥 Poslední ránu zasadil(a): '+hero.name+' 💥', W/2, 432); }
+  // titulky (rolují ve výřezu)
+  if (t>4) {
+    const lines=v.credits||(v.credits=victoryCredits(st)), LH=24, top=452, h=118, off=(t-4)*26;
+    ctx.save(); ctx.beginPath(); ctx.rect(0,top,W,h); ctx.clip();
+    lines.forEach((ln,i)=>{ const y=top+h+i*LH-(off%(lines.length*LH+h)); if (y<top-LH||y>top+h+LH) return;
+      ctx.globalAlpha=Math.max(0,Math.min(1,(y-top)/28,(top+h-y)/28));   // řádky se u okrajů výřezu rozplývají
+      const head=/^[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ★ 0-9–]+$/.test(ln) && i>1 && lines[i-1]===''; ctx.fillStyle=head?'#ff5c7a':i<2?'#ffd700':'#fff'; ctx.font=(head||i<2?'bold ':'')+'22px "VT323", monospace'; ctx.fillText(ln,W/2,y); });
+    ctx.globalAlpha=1; ctx.restore();
+  }
+  if (t>2 && Math.floor(t*2)%2===0) { ctx.fillStyle='#fff'; ctx.font='bold 26px "VT323", monospace'; ctx.fillText(v.net?'▶ ENTER = ZPĚT DO LOBBY':'▶ ENTER = ZPĚT DO MENU', W/2, H-26); }
+  for (const p of fx.parts){ p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt; } fx.parts=fx.parts.filter(p=>p.life>0); fxDraw(ctx);
+}
+function fxVictoryStar(v,x,y){ fxBurst(x,y,22,['#ffd700','#fff','#ffe880'],160,0.6,4); }
+function drawPixelStar(c,x,y,r,color){
+  c.save(); c.translate(x,y); c.beginPath();
+  for (let i=0;i<10;i++){ const a=-Math.PI/2+i*Math.PI/5, rr=i%2?r*0.45:r; c.lineTo(Math.cos(a)*rr,Math.sin(a)*rr); } c.closePath();
+  c.fillStyle='#000'; c.save(); c.translate(3,3); c.fill(); c.restore();
+  c.fillStyle=color; c.fill(); c.strokeStyle=color==='#ffd700'?'#fff6a0':'#5a5070'; c.lineWidth=2.5; c.stroke(); c.restore();
 }
 function drawCoopHud(){
   const names = p => mode===4 ? esc(p.name||('Hráč '+(p.id+1))) : 'Hráč '+(p.id+1);
@@ -894,7 +1382,7 @@ function drawCoopBanner(){
   const fresh = coop.intro>0 ? [...(coop.newcomers||[]).map(type=>({type})), ...(coop.tips||[]).map(tip=>({tip}))] : [];
   if (coop.intro>0) { title=`LEVEL ${coop.level+1}: ${coop.name}`; sub=coop.sub; small='Úkol: '+coop.objective; }
   else if (coop.done==='level') { title='✔ HOTOVO!'; sub='Portál vás přenesl dál…'; }
-  else if (coop.done==='won') { title='🏆 VÍTĚZSTVÍ!'; sub='Boss je poražen · skóre '+coop.score; }
+  else if (coop.done==='won') return;   // místo banneru se přehrává rozpad bosse (fx.death) a pak vítězná obrazovka
   if (!title && coop.goldNote) drawGoldNote(coop.goldNote);
   if (!title) {
     // po Wi-Fi: vlastní smrt velkým písmem uprostřed (ostatní vidí odpočet v HUD a nad tělem)
@@ -1278,11 +1766,11 @@ function netMessage(m){
       $('lobbyStart').style.display = isHost ? '' : 'none';
       $('lobbyHint').textContent = isHost ? (m.players.length<2 ? 'Čekáme na dalšího hráče…' : 'Můžeš spustit hru.') : 'Čekáme, až zakladatel spustí hru…';
       // Do lobby se vracíme jen když server opravdu skončil zápas – ne když někdo odejde uprostřed kola
-      if (mode===4 && m.phase==='lobby') { mode=0; $('lobby').style.display='flex'; }
+      if (mode===4 && m.phase==='lobby' && !victory) { mode=0; $('lobby').style.display='flex'; }   // z vítězné obrazovky až po Enteru
       if (mode===0 && m.phase!=='lobby') { $('lobbyHint').textContent='Kolo ještě běží, za chvíli se připojíš…'; }
       break; }
     case 'round_start': {
-      $('lobby').style.display='none'; net.score=m.score||{}; net.banner=null; net.toast=null; net.targets={}; net.names={};
+      $('lobby').style.display='none'; net.score=m.score||{}; net.banner=null; victory=null; stopMusic(); fx.death=null; fx.parts=[]; fx.rings=[]; if (!m.level) bossJingleDone=false; net.toast=null; net.targets={}; net.names={};
       for (const p of m.players) net.names[p.id]=p.name;
       campaign=null; coopState=null; coop=null; score=[0,0]; players=[]; bombs=[]; fires=[]; powerups=[]; monsters=[]; grid=makeGrid(); roundOver=false; roundTimer=120; suddenDeath=null;
       keys={}; pressed={}; net.lastSent='';
@@ -1291,6 +1779,7 @@ function netMessage(m){
     case 'state': applySnapshot(m.s); net.rtt = m.rtt || {}; break;
     case 'pong': { const ms = Math.round(performance.now() - m.ts); net.myRtt = ms; netSend({t:'rtt', ms}); break; }
     case 'coop_end': {
+      if (m.won && m.stats) { startVictory(m.stats, true); break; }   // stejná vítězná obrazovka jako lokálně
       net.banner = { text: '🏆 VÍTĚZSTVÍ! Boss poražen', sub: 'Hrdinové: '+m.names.join(', ')+' · skóre '+m.score+(m.deaths!=null?' · smrtí '+m.deaths:'')+' · návrat do lobby…' };
       break; }
     case 'round_end': {
@@ -1307,13 +1796,14 @@ const SETTING_ROWS = [
   { key:'mode',        label:'REŽIM', opts:[['arena','ARÉNA'],['coop','VÝPRAVA']] },
   { key:'difficulty',   label:'OBTÍŽNOST',     opts:[['easy','LEHKÁ'],['normal','NORMÁLNÍ'],['hard','TĚŽKÁ']], when:'coop' },
   { key:'friendlyFire', label:'FRIENDLY FIRE', opts:[[false,'VYPNUTO'],[true,'ZAPNUTO']], when:'coop' },
+  { key:'boss',         label:'BOSS',          opts:BOSS_OPTS, when:'coop' },
   { key:'powerups',    label:'POWER-UPY', opts:[['low','MÁLO'],['normal','NORMÁLNĚ'],['high','HODNĚ']], when:'arena' },
   { key:'roundTime',   label:'DÉLKA KOLA', opts:[[60,'1 MIN'],[120,'2 MIN'],[180,'3 MIN']], when:'arena' },
   { key:'roundsToWin', label:'VÍTĚZNÝCH KOL', opts:[[1,'1'],[3,'3'],[5,'5']], when:'arena' },
   { key:'suddenDeath', label:'SUDDEN DEATH', opts:[[true,'ZAPNUTO'],[false,'VYPNUTO']], when:'arena' },
 ];
 function settingsHtml(rows, s, enabled, fn){
-  return rows.map(r => `<div class="srow"><div class="slabel">${r.label}</div><div class="sopts">` +
+  return rows.map(r => `<div class="srow"><div class="slabel">${r.label}</div><div class="sopts${r.opts.length>4?' wide':''}">` +
     r.opts.map(([v,l]) => `<button ${String(s[r.key])===String(v)?'class="active"':''} ${enabled?'':'disabled'} onclick="${fn}('${r.key}',${typeof v==='string' ? `'${v}'` : v})">${l}</button>`).join('') + '</div></div>').join('');
 }
 function renderSettings(s, isHost){
@@ -1340,6 +1830,7 @@ function applySnapshot(s){
   players = players.filter(p => seen.has(p.id));
   if (s.c) { coop = Coop.viewFromSnapshot(s.c); monsters = coop.monsters; } else { coop = null; monsters = []; }
   playEvents(s.e);
+  if (coop) { coopFx(s.e); checkBossJingle(); }
 }
 function netFrame(dt){
   // vstupy → server (jen při změně), bomba hned
@@ -1377,7 +1868,15 @@ function drawNetOverlays(){
 function loop(now){
   if (!mode) { loopRunning = false; return; }
   const dt=Math.min(0.05,(now-lastTime)/1000); lastTime=now;
-  try { if (mode===4) { netFrame(dt); draw(); drawNetHud(); } else if (mode===5) { coopFrame(dt); draw(); } else { update(dt); draw(); } }
+  try {
+    if (victory) drawVictory(dt);
+    else {
+      fxUpdate(dt);
+      const sh=fx.shake; ctx.save(); if (sh>0) ctx.translate((Math.random()-.5)*sh,(Math.random()-.5)*sh);
+      if (mode===4) { netFrame(dt); draw(); fxDraw(ctx); ctx.restore(); drawNetHud(); } else if (mode===5) { coopFrame(dt); if (!victory) { draw(); fxDraw(ctx); } ctx.restore(); } else { update(dt); draw(); ctx.restore(); }
+      fxFlashDraw();
+    }
+  }
   catch (err) { lastError=String(err && err.message || err); console.error(err); }
   if (lastError) { ctx.fillStyle='#ff4040'; ctx.font='12px monospace'; ctx.textAlign='left'; ctx.fillText('CHYBA: '+lastError, 6, canvas.height-6); }
   requestAnimationFrame(loop);
